@@ -92,9 +92,16 @@ function updateSession(
   newDir: string,
   newProjectId: string,
 ): number {
+  // Write session.permission with an allow rule for the target directory.
+  // prompt() loads the session AFTER command.execute.before fires, so this
+  // rule is available when tools run. Uses opencode's own session-level
+  // permission mechanism — scoped to this session only.
+  const permission = JSON.stringify([
+    { permission: "external_directory", pattern: newDir + "/*", action: "allow" },
+  ])
   const result = db.run(
-    `UPDATE session SET directory = ?, project_id = ?, time_updated = ? WHERE id = ?`,
-    [newDir, newProjectId, Date.now(), sessionId],
+    `UPDATE session SET directory = ?, project_id = ?, permission = ?, time_updated = ? WHERE id = ?`,
+    [newDir, newProjectId, permission, Date.now(), sessionId],
   )
   return result.changes
 }
@@ -193,50 +200,6 @@ function getCurrentDirectory(db: Database, sessionId: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Permission helpers — write directly to the permission table so
-// PermissionNext.state() picks up the allow rule after instance reload.
-// ---------------------------------------------------------------------------
-
-function ensurePermission(
-  db: Database,
-  projectId: string,
-  newDir: string,
-): void {
-  // The permission table stores a JSON array of {permission, pattern, action}
-  // per project_id. We add a single catch-all rule for external_directory
-  // that covers newDir and all nested paths.
-  const glob = newDir + "/*"
-  const rule = { permission: "external_directory", pattern: glob, action: "allow" }
-
-  const row = db
-    .query("SELECT data FROM permission WHERE project_id = ?")
-    .get(projectId) as { data: string } | null
-
-  const now = Date.now()
-
-  if (row) {
-    const existing = JSON.parse(row.data) as any[]
-    // Avoid duplicates
-    const alreadyExists = existing.some(
-      (r: any) =>
-        r.permission === rule.permission && r.pattern === rule.pattern && r.action === rule.action,
-    )
-    if (alreadyExists) return
-    existing.push(rule)
-    db.run(
-      "UPDATE permission SET data = ?, time_updated = ? WHERE project_id = ?",
-      [JSON.stringify(existing), now, projectId],
-    )
-  } else {
-    db.run(
-      "INSERT INTO permission (project_id, data, time_created, time_updated) VALUES (?, ?, ?, ?)",
-      [projectId, JSON.stringify([rule]), now, now],
-    )
-  }
-  log("ensurePermission: wrote rule", { projectId, glob })
-}
-
-// ---------------------------------------------------------------------------
 // Runtime path rewriting — intercept tool calls after /cd or /mv
 // ---------------------------------------------------------------------------
 
@@ -294,16 +257,11 @@ function execCd(sessionId: string, targetPath: string): { result: string; oldDir
     }
 
     ensureProject(db, projectId, dir)
-    ensurePermission(db, projectId, dir)
     const changes = updateSession(db, sessionId, dir, projectId)
 
     if (changes === 0) {
       return { result: `Error: session ${sessionId} not found in database.` }
     }
-
-    // Also write permission for the SOURCE project so that tools can
-    // still cross-reference the old directory if needed.
-    ensurePermission(db, session.projectId, dir)
 
     return {
       oldDir: currentDir,
@@ -342,13 +300,9 @@ function execMv(sessionId: string, targetPath: string): { result: string; oldDir
     }
 
     ensureProject(db, projectId, dir)
-    ensurePermission(db, projectId, dir)
     updateSession(db, sessionId, dir, projectId)
 
     const { total, rewritten } = rewriteMessages(db, sessionId, currentDir, dir)
-
-    // Also write permission for the SOURCE project
-    ensurePermission(db, session.projectId, dir)
 
     return {
       oldDir: currentDir,
