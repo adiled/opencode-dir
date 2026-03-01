@@ -5,7 +5,9 @@ import { existsSync, appendFileSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
 
 const LOG_FILE = "/tmp/opencode-dir-debug.log"
+const DEBUG = !!process.env.OPENCODE_DIR_DEBUG
 function log(...args: any[]) {
+  if (!DEBUG) return
   const ts = new Date().toISOString()
   appendFileSync(LOG_FILE, `[${ts}] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")}\n`)
 }
@@ -417,29 +419,6 @@ export const OpencodeDir: Plugin = async ({ directory, client }) => {
           process.chdir(exec.newDir)
         } catch {
           // May fail if directory doesn't exist yet — non-fatal
-        }
-
-        // Allow external_directory permission via the GLOBAL config.
-        // client.global.config.update() writes to ~/.config/opencode/opencode.json
-        // and triggers Instance.disposeAll() → full reload. The DB permission
-        // rule we already wrote in execCd/execMv will be picked up by
-        // PermissionNext.state() after reload. The global config rule provides
-        // a second layer that applies across all projects/instances.
-        try {
-          const glob = exec.newDir + "/*"
-          log("updating global config to allow external_directory", { glob })
-          await client.global.config.update({
-            config: {
-              permission: {
-                external_directory: {
-                  [glob]: "allow",
-                },
-              },
-            },
-          })
-          log("global config updated — instance will reload")
-        } catch (e: any) {
-          log("global config update error", { message: e.message, stack: e.stack })
         }
 
         await client.tui.showToast({
