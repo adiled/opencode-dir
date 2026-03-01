@@ -5,12 +5,26 @@
   "type": "module",
   "license": "MIT",
   "main": "index.ts",
+  "files": [
+    "index.ts"
+  ],
   "keywords": [
     "opencode",
     "opencode-plugin",
     "cd",
     "directory"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adiled/opencode-dir.git"
+  },
+  "homepage": "https://github.com/adiled/opencode-dir#readme",
+  "bugs": {
+    "url": "https://github.com/adiled/opencode-dir/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.2.0"
   }
