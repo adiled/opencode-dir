@@ -1,0 +1,17 @@
+{
+  "name": "opencode-dir",
+  "version": "0.1.0",
+  "description": "Change the working directory of an opencode session",
+  "type": "module",
+  "license": "MIT",
+  "main": "index.ts",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "cd",
+    "directory"
+  ],
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.2.0"
+  }
+}
