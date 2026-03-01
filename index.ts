@@ -1,8 +1,40 @@
 import { type Plugin } from "@opencode-ai/plugin"
 import { Database } from "bun:sqlite"
 import { resolve } from "path"
-import { existsSync } from "fs"
+import { existsSync, appendFileSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
+
+const LOG_FILE = "/tmp/opencode-dir-debug.log"
+function log(...args: any[]) {
+  const ts = new Date().toISOString()
+  appendFileSync(LOG_FILE, `[${ts}] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")}\n`)
+}
+
+// ---------------------------------------------------------------------------
+// Persistent overrides — survives instance dispose/reload
+// ---------------------------------------------------------------------------
+
+const OVERRIDES_FILE = "/tmp/opencode-dir-overrides.json"
+
+type Override = { oldDir: string; newDir: string }
+
+function loadOverrides(): Map<string, Override> {
+  try {
+    const raw = readFileSync(OVERRIDES_FILE, "utf-8")
+    const entries = JSON.parse(raw) as [string, Override][]
+    return new Map(entries)
+  } catch {
+    return new Map()
+  }
+}
+
+function persistOverrides(map: Map<string, Override>): void {
+  try {
+    writeFileSync(OVERRIDES_FILE, JSON.stringify([...map.entries()]))
+  } catch (e: any) {
+    log("persistOverrides error", { message: e.message })
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Database helpers
@@ -135,9 +167,10 @@ function getSessionInfo(
   return { directory: row.directory, projectId: row.project_id }
 }
 
-// Get the actual current directory from the latest assistant message's path.cwd
-// This is the source of truth — assistant messages carry path.cwd, user messages don't.
-// Note: role is inside the JSON `data` column, not a table column.
+// Get the actual current directory from the earliest assistant message's path.cwd.
+// We scan the first 10 messages to find the original directory — this way if the
+// user did /cd first (which doesn't rewrite messages), a later /mv can still find
+// the original paths to rewrite.
 function getCurrentDirectory(db: Database, sessionId: string): string | null {
   const rows = db
     .query(
@@ -158,86 +191,175 @@ function getCurrentDirectory(db: Database, sessionId: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Core operations — shared between hook and tools
+// Permission helpers — write directly to the permission table so
+// PermissionNext.state() picks up the allow rule after instance reload.
 // ---------------------------------------------------------------------------
 
-function execCd(sessionId: string, targetPath: string): string {
+function ensurePermission(
+  db: Database,
+  projectId: string,
+  newDir: string,
+): void {
+  // The permission table stores a JSON array of {permission, pattern, action}
+  // per project_id. We add a single catch-all rule for external_directory
+  // that covers newDir and all nested paths.
+  const glob = newDir + "/*"
+  const rule = { permission: "external_directory", pattern: glob, action: "allow" }
+
+  const row = db
+    .query("SELECT data FROM permission WHERE project_id = ?")
+    .get(projectId) as { data: string } | null
+
+  const now = Date.now()
+
+  if (row) {
+    const existing = JSON.parse(row.data) as any[]
+    // Avoid duplicates
+    const alreadyExists = existing.some(
+      (r: any) =>
+        r.permission === rule.permission && r.pattern === rule.pattern && r.action === rule.action,
+    )
+    if (alreadyExists) return
+    existing.push(rule)
+    db.run(
+      "UPDATE permission SET data = ?, time_updated = ? WHERE project_id = ?",
+      [JSON.stringify(existing), now, projectId],
+    )
+  } else {
+    db.run(
+      "INSERT INTO permission (project_id, data, time_created, time_updated) VALUES (?, ?, ?, ?)",
+      [projectId, JSON.stringify([rule]), now, now],
+    )
+  }
+  log("ensurePermission: wrote rule", { projectId, glob })
+}
+
+// ---------------------------------------------------------------------------
+// Runtime path rewriting — intercept tool calls after /cd or /mv
+// ---------------------------------------------------------------------------
+
+// Per-session directory overrides: sessionId -> { oldDir, newDir }
+// Initialised from disk so we survive instance dispose/reload cycles.
+const dirOverrides = loadOverrides()
+
+function rewritePath(
+  filePath: string,
+  oldDir: string,
+  newDir: string,
+): string {
+  if (filePath === oldDir) return newDir
+  if (filePath.startsWith(oldDir + "/")) {
+    return newDir + filePath.slice(oldDir.length)
+  }
+  return filePath
+}
+
+// Tools that carry file paths in their args
+const PATH_TOOLS: Record<string, string[]> = {
+  read: ["filePath"],
+  write: ["filePath"],
+  edit: ["filePath"],
+  glob: ["path"],
+  grep: ["path"],
+  bash: ["workdir"],
+  list: ["path"],
+  webfetch: [], // no path args
+  task: [], // no path args
+}
+
+// ---------------------------------------------------------------------------
+// Core operations
+// ---------------------------------------------------------------------------
+
+function execCd(sessionId: string, targetPath: string): { result: string; oldDir?: string; newDir?: string } {
+  log("execCd", { sessionId, targetPath })
   const { dir, projectId } = resolveTarget(targetPath)
 
   const db = new Database(getDbPath())
   try {
     const session = getSessionInfo(db, sessionId)
     if (!session) {
-      return `Error: session ${sessionId} not found in database.`
+      return { result: `Error: session ${sessionId} not found in database.` }
     }
 
     if (session.projectId === "global") {
-      return `Error: This session belongs to the "global" project (not a git repo). /cd only works for sessions started inside a git repository.`
+      return { result: `Error: This session belongs to the "global" project (not a git repo). /cd only works for sessions started inside a git repository.` }
     }
 
     const currentDir = getCurrentDirectory(db, sessionId) ?? session.directory
     if (dir === currentDir) {
-      return `Already in ${dir} — no change needed.`
+      return { result: `Already in ${dir} — no change needed.` }
     }
 
     ensureProject(db, projectId, dir)
+    ensurePermission(db, projectId, dir)
     const changes = updateSession(db, sessionId, dir, projectId)
 
     if (changes === 0) {
-      return `Error: session ${sessionId} not found in database.`
+      return { result: `Error: session ${sessionId} not found in database.` }
     }
 
-    return [
-      `Session directory changed: ${currentDir} -> ${dir}`,
-      `Project: ${projectId}`,
-      ``,
-      `NEXT STEPS:`,
-      `1. Close this opencode session (Ctrl+C or /exit)`,
-      `2. cd ${dir}`,
-      `3. opencode`,
-      `4. Resume this session from the session list`,
-    ].join("\n")
+    // Also write permission for the SOURCE project so that tools can
+    // still cross-reference the old directory if needed.
+    ensurePermission(db, session.projectId, dir)
+
+    return {
+      oldDir: currentDir,
+      newDir: dir,
+      result: [
+        `Session directory changed: ${currentDir} -> ${dir}`,
+        `Project: ${projectId}`,
+        ``,
+        `Tools will now operate in ${dir} for this session.`,
+        `Restart opencode in the new directory for a clean slate.`,
+      ].join("\n"),
+    }
   } finally {
     db.close()
   }
 }
 
-function execMv(sessionId: string, targetPath: string): string {
+function execMv(sessionId: string, targetPath: string): { result: string; oldDir?: string; newDir?: string } {
+  log("execMv", { sessionId, targetPath })
   const { dir, projectId } = resolveTarget(targetPath)
 
   const db = new Database(getDbPath())
   try {
     const session = getSessionInfo(db, sessionId)
     if (!session) {
-      return `Error: session ${sessionId} not found in database.`
+      return { result: `Error: session ${sessionId} not found in database.` }
     }
 
     if (session.projectId === "global") {
-      return `Error: This session belongs to the "global" project (not a git repo). /mv only works for sessions started inside a git repository.`
+      return { result: `Error: This session belongs to the "global" project (not a git repo). /mv only works for sessions started inside a git repository.` }
     }
 
     const currentDir = getCurrentDirectory(db, sessionId) ?? session.directory
     if (dir === currentDir) {
-      return `Already in ${dir} — no change needed.`
+      return { result: `Already in ${dir} — no change needed.` }
     }
 
     ensureProject(db, projectId, dir)
+    ensurePermission(db, projectId, dir)
     updateSession(db, sessionId, dir, projectId)
 
-    // Use currentDir (from messages) as oldDir for rewriting, not session.directory
     const { total, rewritten } = rewriteMessages(db, sessionId, currentDir, dir)
 
-    return [
-      `Session moved: ${currentDir} -> ${dir}`,
-      `Project: ${projectId}`,
-      `Messages: ${rewritten}/${total} rewritten`,
-      ``,
-      `NEXT STEPS:`,
-      `1. Close this opencode session (Ctrl+C or /exit)`,
-      `2. cd ${dir}`,
-      `3. opencode`,
-      `4. Resume this session from the session list`,
-    ].join("\n")
+    // Also write permission for the SOURCE project
+    ensurePermission(db, session.projectId, dir)
+
+    return {
+      oldDir: currentDir,
+      newDir: dir,
+      result: [
+        `Session moved: ${currentDir} -> ${dir}`,
+        `Project: ${projectId}`,
+        `Messages: ${rewritten}/${total} rewritten`,
+        ``,
+        `Tools will now operate in ${dir} for this session.`,
+        `Restart opencode in the new directory for a clean slate.`,
+      ].join("\n"),
+    }
   } finally {
     db.close()
   }
@@ -248,19 +370,18 @@ function execMv(sessionId: string, targetPath: string): string {
 // ---------------------------------------------------------------------------
 
 export const OpencodeDir: Plugin = async ({ directory, client }) => {
+  log("plugin loaded", { directory, overridesRecovered: dirOverrides.size })
+
   return {
-    // -----------------------------------------------------------------------
-    // Deterministic command execution via hook
-    // The work is done HERE, before the LLM runs. The LLM just gets the
-    // result as its input and acknowledges it.
-    // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------
+    // /cd and /mv command handler
+    // -----------------------------------------------------------------
     "command.execute.before": async (input, output) => {
+      log("command.execute.before", { command: input.command, sessionID: input.sessionID, arguments: input.arguments })
       if (input.command !== "cd" && input.command !== "mv") return
 
       const targetPath = input.arguments.trim()
       if (!targetPath) {
-        // Mutate in place — output.parts is a reference to a local variable
-        // in the caller, so reassigning output.parts won't propagate.
         output.parts.length = 0
         output.parts.push({
           type: "text",
@@ -269,36 +390,117 @@ export const OpencodeDir: Plugin = async ({ directory, client }) => {
         return
       }
 
-      let result: string
-      let targetDir: string | undefined
+      let exec: { result: string; oldDir?: string; newDir?: string }
       try {
-        if (input.command === "cd") {
-          result = execCd(input.sessionID, targetPath)
-        } else {
-          result = execMv(input.sessionID, targetPath)
-        }
-
-        // Extract target directory from result for toast
-        const match = result.match(/-> (.+)/)
-        targetDir = match?.[1]
+        exec =
+          input.command === "cd"
+            ? execCd(input.sessionID, targetPath)
+            : execMv(input.sessionID, targetPath)
       } catch (err: any) {
-        result = `Error: ${err.message}`
+        exec = { result: `Error: ${err.message}` }
       }
 
-      // Mutate in place — see note above
       output.parts.length = 0
-      output.parts.push({ type: "text", text: result })
+      output.parts.push({ type: "text", text: exec.result })
 
-      // Show toast notification with clear instructions
-      if (targetDir && !result.startsWith("Error")) {
+      // If the move/cd succeeded, register the override for runtime interception
+      if (exec.oldDir && exec.newDir) {
+        log("storing override", { sessionID: input.sessionID, oldDir: exec.oldDir, newDir: exec.newDir })
+        dirOverrides.set(input.sessionID, {
+          oldDir: exec.oldDir,
+          newDir: exec.newDir,
+        })
+        persistOverrides(dirOverrides)
+
+        // Change process cwd so bash tools default to the new directory
+        try {
+          process.chdir(exec.newDir)
+        } catch {
+          // May fail if directory doesn't exist yet — non-fatal
+        }
+
+        // Allow external_directory permission via the GLOBAL config.
+        // client.global.config.update() writes to ~/.config/opencode/opencode.json
+        // and triggers Instance.disposeAll() → full reload. The DB permission
+        // rule we already wrote in execCd/execMv will be picked up by
+        // PermissionNext.state() after reload. The global config rule provides
+        // a second layer that applies across all projects/instances.
+        try {
+          const glob = exec.newDir + "/*"
+          log("updating global config to allow external_directory", { glob })
+          await client.global.config.update({
+            config: {
+              permission: {
+                external_directory: {
+                  [glob]: "allow",
+                },
+              },
+            },
+          })
+          log("global config updated — instance will reload")
+        } catch (e: any) {
+          log("global config update error", { message: e.message, stack: e.stack })
+        }
+
         await client.tui.showToast({
           body: {
-            title: "⚠️ SESSION DIRECTORY CHANGED",
-            message: `Moved to ${targetDir}.\n\n🛑 CLOSE OPENCODE NOW (Ctrl+C or /exit)\nThen: cd ${targetDir} && opencode`,
-            variant: "warning",
-            duration: 30000, // 30 seconds
+            title: "Session directory changed",
+            message: `Now operating in ${exec.newDir}.\nRestart opencode there for a clean slate.`,
+            variant: "info",
+            duration: 8000,
           },
+        }).catch(() => {
+          // Toast may fail if instance is mid-dispose — non-fatal
         })
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // Intercept tool calls to rewrite file paths
+    // -----------------------------------------------------------------
+    "tool.execute.before": async (input, output) => {
+      const override = dirOverrides.get(input.sessionID)
+      log("tool.execute.before", { tool: input.tool, sessionID: input.sessionID, hasOverride: !!override, argsBefore: output.args })
+      if (!override) return
+
+      const { oldDir, newDir } = override
+      const pathKeys = PATH_TOOLS[input.tool]
+
+      // Rewrite known path args
+      if (pathKeys) {
+        for (const key of pathKeys) {
+          if (typeof output.args[key] === "string") {
+            output.args[key] = rewritePath(output.args[key], oldDir, newDir)
+          }
+        }
+      }
+
+      // For bash: inject workdir if missing (bash falls back to
+      // Instance.directory, not process.cwd), and rewrite absolute
+      // paths in the command string
+      if (input.tool === "bash") {
+        if (!output.args.workdir) {
+          log("injecting workdir", { newDir })
+          output.args.workdir = newDir
+        }
+        if (typeof output.args.command === "string") {
+          output.args.command = output.args.command.replaceAll(oldDir, newDir)
+        }
+      }
+      log("tool.execute.before DONE", { argsAfter: output.args })
+    },
+
+    // -----------------------------------------------------------------
+    // Inject correct PWD for shell executions
+    // -----------------------------------------------------------------
+    "shell.env": async (input, output) => {
+      log("shell.env", { cwd: input.cwd, sessionID: input.sessionID })
+      const override = dirOverrides.get(input.sessionID ?? "")
+      if (!override) return
+
+      const { oldDir, newDir } = override
+      if (input.cwd === oldDir || input.cwd.startsWith(oldDir + "/")) {
+        output.env.PWD = rewritePath(input.cwd, oldDir, newDir)
       }
     },
   }

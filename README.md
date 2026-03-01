@@ -12,7 +12,7 @@ Change the session's working directory. Updates the session metadata without rew
 
 ### `/mv <path>`
 
-Move the session to a new directory. Updates the session metadata **and** rewrites `path.cwd` and `path.root` in all assistant messages to point to the new location. Use this when relocating a session and its full context to a different repo or directory within a monorepo.
+Move the session to a new directory. Updates the session metadata **and** rewrites `path.cwd` and `path.root` in all assistant messages to point to the new location. Use this when relocating a session and its full context to a different repo.
 
 ## Install
 
@@ -33,7 +33,10 @@ Add to your `opencode.json`:
 1. Resolves the target directory and computes its project ID (the repo's initial commit hash, matching opencode's own logic)
 2. Updates the session's `directory` and `project_id` in the database
 3. For `/mv`, rewrites `path.cwd` and `path.root` in all assistant messages from the old directory to the new one
-4. After running either command, restart opencode in the target directory and resume the session from the session list
+4. Intercepts subsequent tool calls (`bash`, `read`, `write`, `edit`, `glob`, `grep`, etc.) and rewrites file paths from the old directory to the new one — tools operate in the new directory immediately without a restart
+5. Changes `process.cwd()` so shell tools default to the new directory
+
+For a fully clean environment, restart opencode in the target directory after the move.
 
 ## License
 
