@@ -358,12 +358,16 @@ describe("execMove", () => {
     expect(JSON.parse(row.data).path.cwd).toBe(repo)
   })
 
-  it("rejects global project sessions", () => {
-    stubSession(db, "ses_1", "global", "/tmp")
+  it("moves global project sessions into a git repo", () => {
+    const projectId = getInitialCommit(repo)!
+    stubSession(db, "ses_1", "global", "/tmp/nongit")
 
     const result = execMove("ses_1", repo, false, db)
-    expect(result.result).toContain("global")
-    expect(result.oldDir).toBeUndefined()
+    expect(result.oldDir).toBe("/tmp/nongit")
+    expect(result.newDir).toBe(repo)
+
+    const session = getSessionInfo(db, "ses_1")!
+    expect(session.projectId).toBe(projectId)
   })
 
   it("returns error for nonexistent session", () => {

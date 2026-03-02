@@ -26,15 +26,16 @@ Add to your `opencode.json`:
 
 ## Requirements
 
-- Both source and target directories must be inside a git repository. Sessions in non-git directories (the `"global"` project) are not supported because opencode groups all non-git sessions under a single project, making reliable moves impossible.
+- The **target** directory must be inside a git repository. Moving to a non-git directory is not supported because opencode groups all non-git sessions under a single `"global"` project, making reliable moves impossible.
+- Sessions started in non-git directories can be moved **into** a git repo — this is a valid way to "adopt" a global session into a proper project.
 
 ## How it works
 
 1. Resolves the target directory and computes its project ID (the repo's initial commit hash, matching opencode's own logic)
 2. Updates the session's `directory` and `project_id` in the database
 3. For `/mv`, rewrites `path.cwd` and `path.root` in all assistant messages from the old directory to the new one
-4. Intercepts subsequent tool calls (`bash`, `read`, `write`, `edit`, `glob`, `grep`, etc.) and rewrites file paths from the old directory to the new one — tools operate in the new directory immediately without a restart
-5. Changes `process.cwd()` so shell tools default to the new directory
+4. Intercepts subsequent tool calls (`bash`, `read`, `write`, `edit`, `glob`, `grep`) and rewrites file paths from the old directory to the new one — tools operate in the new directory immediately without a restart
+5. Writes an `external_directory` permission rule on the session so tools can access the new directory without prompts
 
 For a fully clean environment, restart opencode in the target directory after the move.
 

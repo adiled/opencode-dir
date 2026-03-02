@@ -266,13 +266,6 @@ export function execMove(
       return { result: `Error: session ${sessionId} not found in database.` }
     }
 
-    if (session.projectId === "global") {
-      const cmd = rewrite ? "/mv" : "/cd"
-      return {
-        result: `Error: This session belongs to the "global" project (not a git repo). ${cmd} only works for sessions started inside a git repository.`,
-      }
-    }
-
     const currentDir = getCurrentDirectory(db, sessionId) ?? session.directory
     if (dir === currentDir) {
       return { result: `Already in ${dir} — no change needed.` }
