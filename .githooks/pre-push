@@ -8,11 +8,10 @@ while read local_ref local_sha remote_ref remote_sha; do
       exit 0
     fi
     npm version patch --no-git-tag-version
+    VERSION=$(node -p "require('./package.json').version")
     git add package.json
-    git commit --amend --no-edit
-    # Push the amended commit (hook re-fires, hits idempotency guard, exits 0)
+    git commit -m "v${VERSION}"
+    # Inner push delivers both commits; outer push sees "up to date", exits clean
     git push origin main
-    # Abort the original (stale) push — our push above already delivered
-    exit 1
   fi
 done
