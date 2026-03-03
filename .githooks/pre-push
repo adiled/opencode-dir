@@ -3,6 +3,10 @@ set -e
 
 while read local_ref local_sha remote_ref remote_sha; do
   if [ "$remote_ref" = "refs/heads/main" ]; then
+    # Skip if package.json was already bumped in HEAD commit
+    if git diff-tree --no-commit-id --name-only -r HEAD | grep -q '^package\.json$'; then
+      exit 0
+    fi
     npm version patch --no-git-tag-version
     git add package.json
     git commit --amend --no-edit
