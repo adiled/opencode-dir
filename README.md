@@ -2,17 +2,7 @@
 
 Directory operations for [opencode](https://opencode.ai) sessions.
 
-When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd` and `/mv` commands to move sessions between directories.
-
-## Commands
-
-### `/cd <path>`
-
-Change the session's working directory. Updates the session metadata without rewriting message history. Useful when you want the session to continue in a new location but don't need old file references updated.
-
-### `/mv <path>`
-
-Move the session to a new directory. Updates the session metadata **and** rewrites `path.cwd` and `path.root` in all assistant messages to point to the new location. Use this when relocating a session and its full context to a different repo.
+When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd` and `/mv` commands to move sessions between directories at runtime.
 
 ## Install
 
@@ -24,20 +14,21 @@ Add to your `opencode.json`:
 }
 ```
 
-## Requirements
+## Commands
 
-- The **target** directory must be inside a git repository. Moving to a non-git directory is not supported because opencode groups all non-git sessions under a single `"global"` project, making reliable moves impossible.
-- Sessions started in non-git directories can be moved **into** a git repo — this is a valid way to "adopt" a global session into a proper project.
+### `/cd <path>`
 
-## How it works
+Change the session's working directory. Tools (`bash`, `glob`, `grep`, `read`, `write`, `edit`) will operate in the new directory immediately. Message history is left untouched.
 
-1. Resolves the target directory and computes its project ID (the repo's initial commit hash, matching opencode's own logic)
-2. Updates the session's `directory` and `project_id` in the database
-3. For `/mv`, rewrites `path.cwd` and `path.root` in all assistant messages from the old directory to the new one
-4. Intercepts subsequent tool calls (`bash`, `read`, `write`, `edit`, `glob`, `grep`) and rewrites file paths from the old directory to the new one — tools operate in the new directory immediately without a restart
-5. Writes an `external_directory` permission rule on the session so tools can access the new directory without prompts
+The target must be inside a git repository.
 
-For a fully clean environment, restart opencode in the target directory after the move.
+### `/mv <path>`
+
+Same as `/cd`, but also rewrites `path.cwd` and `path.root` in all existing assistant messages to point to the new directory. Use this when you want the full conversation history to reflect the new location.
+
+## After moving
+
+For a fully clean environment (updated system prompt, fresh project context), restart opencode in the target directory. The session will appear under the target project's session list.
 
 ## License
 
