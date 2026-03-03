@@ -13,7 +13,7 @@ while read local_ref local_sha remote_ref remote_sha; do
     git commit --amend --no-edit
     # Inner push delivers the amended commit
     git push origin main
-    echo "Pushed v${VERSION}"
+    echo "Pushed v${VERSION} — ignore the following error"
     # Abort outer push (stale SHA) — inner push already delivered
     exit 1
   fi
