@@ -173,7 +173,6 @@ describe("ensureProject", () => {
     const row = db.query("SELECT * FROM project WHERE id = ?").get("proj_1") as Record<string, unknown>
     expect(row).toBeTruthy()
     expect(row.worktree).toBe("/work")
-    expect(row.vcs).toBe("git")
     db.close()
   })
 

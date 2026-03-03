@@ -123,7 +123,7 @@ export function createSchema(db: Database) {
     CREATE TABLE IF NOT EXISTS project (
       id TEXT PRIMARY KEY,
       worktree TEXT NOT NULL,
-      vcs TEXT NOT NULL,
+      vcs TEXT,
       name TEXT,
       icon_url TEXT,
       icon_color TEXT,
@@ -170,8 +170,8 @@ export function ensureProject(db: Database, projectId: string, worktree: string)
 
   const now = Date.now()
   db.run(
-    `INSERT INTO project (id, worktree, vcs, name, icon_url, icon_color, time_created, time_updated, time_initialized, sandboxes, commands)
-     VALUES (?, ?, 'git', NULL, NULL, 'blue', ?, ?, NULL, '[]', NULL)`,
+    `INSERT INTO project (id, worktree, time_created, time_updated, sandboxes)
+     VALUES (?, ?, ?, ?, '[]')`,
     [projectId, worktree, now, now],
   )
 }
@@ -345,9 +345,13 @@ export function execMove(
       : [`Session directory changed: ${currentDir} -> ${dir}`, `Project: ${projectId}`]
 
     lines.push("", `Tools will now operate in ${dir} for this session.`)
-    lines.push(`Restart opencode in the new directory for a clean slate.`)
 
     return { oldDir: currentDir, newDir: dir, result: lines.join("\n") }
+  } catch (e) {
+    // Report full detail to Sentry, collapse for user
+    const err = e instanceof Error ? e : new Error(String(e))
+    reportError(err)
+    return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }
   } finally {
     if (owned) db.close()
   }

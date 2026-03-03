@@ -51,7 +51,6 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         exec = execMove(input.sessionID, targetPath, input.command === "mv")
       } catch (e: unknown) {
         exec = { result: `Error: ${e instanceof Error ? e.message : String(e)}` }
-        if (e instanceof Error) reportError(e)
       }
 
       output.parts.splice(0)
