@@ -92,5 +92,15 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
       output.env.PWD = override.newDir
     },
+
+    "experimental.chat.system.transform": async (input, output) => {
+      const override = dirOverrides.get(input.sessionID ?? "")
+      if (!override) return
+
+      output.system[0] = output.system[0].replace(
+        /Working directory: .*/,
+        `Working directory: ${override.newDir}`,
+      )
+    },
   }
 }
