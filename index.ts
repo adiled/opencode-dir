@@ -6,6 +6,7 @@ import {
   loadOverrides,
   persistOverrides,
   execMove,
+  reportError,
 } from "./lib"
 
 const STATE_DIR = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
@@ -50,6 +51,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         exec = execMove(input.sessionID, targetPath, input.command === "mv")
       } catch (e: unknown) {
         exec = { result: `Error: ${e instanceof Error ? e.message : String(e)}` }
+        if (e instanceof Error) reportError(e)
       }
 
       output.parts.splice(0)
@@ -72,35 +74,47 @@ export const OpencodeDir: Plugin = async ({ client }) => {
     },
 
     "tool.execute.before": async (input, output) => {
-      const override = dirOverrides.get(input.sessionID)
-      if (!override) return
-      log("tool.execute.before", { tool: input.tool, sessionID: input.sessionID })
+      try {
+        const override = dirOverrides.get(input.sessionID)
+        if (!override) return
+        log("tool.execute.before", { tool: input.tool, sessionID: input.sessionID })
 
-      const { newDir } = override
+        const { newDir } = override
 
-      // Inject newDir as default path for tools that fall back to Instance.directory
-      if (input.tool === "bash") {
-        if (!output.args.workdir) output.args.workdir = newDir
-      } else if (input.tool === "glob" || input.tool === "grep") {
-        if (!output.args.path) output.args.path = newDir
+        // Inject newDir as default path for tools that fall back to Instance.directory
+        if (input.tool === "bash") {
+          if (!output.args.workdir) output.args.workdir = newDir
+        } else if (input.tool === "glob" || input.tool === "grep") {
+          if (!output.args.path) output.args.path = newDir
+        }
+      } catch (e) {
+        if (e instanceof Error) reportError(e)
       }
     },
 
     "shell.env": async (input, output) => {
-      const override = dirOverrides.get(input.sessionID ?? "")
-      if (!override) return
+      try {
+        const override = dirOverrides.get(input.sessionID ?? "")
+        if (!override) return
 
-      output.env.PWD = override.newDir
+        output.env.PWD = override.newDir
+      } catch (e) {
+        if (e instanceof Error) reportError(e)
+      }
     },
 
     "experimental.chat.system.transform": async (input, output) => {
-      const override = dirOverrides.get(input.sessionID ?? "")
-      if (!override) return
+      try {
+        const override = dirOverrides.get(input.sessionID ?? "")
+        if (!override) return
 
-      output.system[0] = output.system[0].replace(
-        /Working directory: .*/,
-        `Working directory: ${override.newDir}`,
-      )
+        output.system[0] = output.system[0].replace(
+          /Working directory: .*/,
+          `Working directory: ${override.newDir}`,
+        )
+      } catch (e) {
+        if (e instanceof Error) reportError(e)
+      }
     },
   }
 }

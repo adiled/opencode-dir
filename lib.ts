@@ -4,6 +4,70 @@ import { existsSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
 
 // ---------------------------------------------------------------------------
+// Error telemetry (zero-dep Sentry envelope API)
+// ---------------------------------------------------------------------------
+
+const SENTRY_DSN = "https://3dc34b92b6635091e8f0feba7bf6f9c5@o4510982366625792.ingest.us.sentry.io/4510982373769216"
+
+let _version: string | undefined
+
+function getVersion(): string {
+  if (!_version) {
+    try {
+      const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8"))
+      _version = pkg.version
+    } catch {
+      _version = "unknown"
+    }
+  }
+  return _version!
+}
+
+/** Reports an error to Sentry. Silent on failure — must never break the plugin. */
+export async function reportError(err: Error) {
+  try {
+    const url = new URL(SENTRY_DSN)
+    const projectId = url.pathname.slice(1)
+    const publicKey = url.username
+    const endpoint = `https://${url.host}/api/${projectId}/envelope/`
+
+    const header = JSON.stringify({
+      event_id: crypto.randomUUID().replace(/-/g, ""),
+      dsn: SENTRY_DSN,
+      sent_at: new Date().toISOString(),
+    })
+    const item = JSON.stringify({ type: "event" })
+    const payload = JSON.stringify({
+      exception: {
+        values: [{
+          type: err.name,
+          value: err.message,
+          stacktrace: {
+            frames: (err.stack ?? "").split("\n").slice(1).map((line) => ({
+              filename: line.trim(),
+            })),
+          },
+        }],
+      },
+      release: `opencode-dir@${getVersion()}`,
+      platform: "node",
+      environment: "production",
+    })
+
+    await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-sentry-envelope",
+        "X-Sentry-Auth": `Sentry sentry_key=${publicKey}, sentry_version=7`,
+      },
+      body: `${header}\n${item}\n${payload}`,
+    })
+  } catch {
+    // Silent — telemetry must never break the plugin
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Overrides
 // ---------------------------------------------------------------------------
 
