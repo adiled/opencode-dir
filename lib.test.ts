@@ -16,7 +16,7 @@ import {
   execMove,
   loadOverrides,
   persistOverrides,
-} from "../lib"
+} from "./lib"
 
 // ---------------------------------------------------------------------------
 // Helpers
