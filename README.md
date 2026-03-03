@@ -20,8 +20,6 @@ Add to your `opencode.json`:
 
 Change the session's working directory. Tools (`bash`, `glob`, `grep`, `read`, `write`, `edit`) will operate in the new directory immediately. Message history is left untouched.
 
-The target must be inside a git repository.
-
 ### `/mv <path>`
 
 Same as `/cd`, but also rewrites `path.cwd` and `path.root` in all existing assistant messages to point to the new directory. Use this when you want the full conversation history to reflect the new location.

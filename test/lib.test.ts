@@ -153,9 +153,11 @@ describe("resolveTarget", () => {
     expect(() => resolveTarget("/no/such/path/xyz")).toThrow("does not exist")
   })
 
-  it("throws for non-git directory", () => {
+  it("resolves non-git directory with global projectId", () => {
     const dir = mkdtempSync(join(tmpdir(), "ocd-nogit-"))
-    expect(() => resolveTarget(dir)).toThrow("not inside a git repository")
+    const result = resolveTarget(dir)
+    expect(result.dir).toBe(dir)
+    expect(result.projectId).toBe("global")
     rmSync(dir, { recursive: true, force: true })
   })
 })

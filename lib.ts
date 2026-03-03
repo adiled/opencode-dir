@@ -174,9 +174,9 @@ export function rewriteMessages(
 }
 
 /**
- * Resolves a user-provided path to an absolute directory and its git
- * project ID. Throws if the path does not exist or is not inside a
- * git repository.
+ * Resolves a user-provided path to an absolute directory and its
+ * project ID. Uses the git initial commit hash when available,
+ * falls back to "global" for non-git directories.
  */
 export function resolveTarget(targetPath: string): { dir: string; projectId: string } {
   const dir = resolve(targetPath.replace(/^~/, process.env.HOME || "/root"))
@@ -185,15 +185,7 @@ export function resolveTarget(targetPath: string): { dir: string; projectId: str
     throw new Error(`Directory does not exist: ${dir}`)
   }
 
-  const projectId = getInitialCommit(dir)
-  if (!projectId) {
-    throw new Error(
-      `Target directory is not inside a git repository.\n` +
-        `/cd and /mv only work with git repos — non-git directories ` +
-        `share a single "global" project in opencode, making session moves unreliable.`,
-    )
-  }
-
+  const projectId = getInitialCommit(dir) ?? "global"
   return { dir, projectId }
 }
 
