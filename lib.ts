@@ -297,23 +297,3 @@ export function execMove(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Path rewriting
-// ---------------------------------------------------------------------------
-
-/** Replaces `oldDir` prefix with `newDir` in a file path. */
-export function rewritePath(filePath: string, oldDir: string, newDir: string): string {
-  if (filePath === oldDir) return newDir
-  if (filePath.startsWith(oldDir + "/")) return newDir + filePath.slice(oldDir.length)
-  return filePath
-}
-
-/** Map of tool IDs to arg keys that carry file paths. */
-export const PATH_TOOLS: Record<string, string[]> = {
-  read: ["filePath"],
-  write: ["filePath"],
-  edit: ["filePath"],
-  glob: ["path"],
-  grep: ["path"],
-  bash: ["workdir"],
-}

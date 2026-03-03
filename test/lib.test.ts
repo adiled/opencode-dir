@@ -14,10 +14,8 @@ import {
   getInitialCommit,
   resolveTarget,
   execMove,
-  rewritePath,
   loadOverrides,
   persistOverrides,
-  PATH_TOOLS,
 } from "../lib"
 
 // ---------------------------------------------------------------------------
@@ -67,28 +65,6 @@ function stubMessage(db: Database, id: string, sessionId: string, data: Record<s
     [id, sessionId, now, now, JSON.stringify(data)],
   )
 }
-
-// ---------------------------------------------------------------------------
-// rewritePath
-// ---------------------------------------------------------------------------
-
-describe("rewritePath", () => {
-  it("rewrites exact match", () => {
-    expect(rewritePath("/old", "/old", "/new")).toBe("/new")
-  })
-
-  it("rewrites prefix match", () => {
-    expect(rewritePath("/old/sub/file.ts", "/old", "/new")).toBe("/new/sub/file.ts")
-  })
-
-  it("leaves unrelated paths unchanged", () => {
-    expect(rewritePath("/other/file.ts", "/old", "/new")).toBe("/other/file.ts")
-  })
-
-  it("does not rewrite partial directory name matches", () => {
-    expect(rewritePath("/old-stuff/file.ts", "/old", "/new")).toBe("/old-stuff/file.ts")
-  })
-})
 
 // ---------------------------------------------------------------------------
 // loadOverrides / persistOverrides
@@ -408,22 +384,4 @@ describe("execMove", () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// PATH_TOOLS
-// ---------------------------------------------------------------------------
 
-describe("PATH_TOOLS", () => {
-  it("maps known tools to their path arg keys", () => {
-    expect(PATH_TOOLS.read).toEqual(["filePath"])
-    expect(PATH_TOOLS.write).toEqual(["filePath"])
-    expect(PATH_TOOLS.edit).toEqual(["filePath"])
-    expect(PATH_TOOLS.glob).toEqual(["path"])
-    expect(PATH_TOOLS.grep).toEqual(["path"])
-    expect(PATH_TOOLS.bash).toEqual(["workdir"])
-  })
-
-  it("does not include tools without path args", () => {
-    expect(PATH_TOOLS.webfetch).toBeUndefined()
-    expect(PATH_TOOLS.task).toBeUndefined()
-  })
-})

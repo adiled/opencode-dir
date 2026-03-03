@@ -6,8 +6,6 @@ import {
   loadOverrides,
   persistOverrides,
   execMove,
-  rewritePath,
-  PATH_TOOLS,
 } from "./lib"
 
 const STATE_DIR = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
@@ -78,21 +76,13 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       if (!override) return
       log("tool.execute.before", { tool: input.tool, sessionID: input.sessionID })
 
-      const { oldDir, newDir } = override
-      const pathKeys = PATH_TOOLS[input.tool]
-      if (pathKeys) {
-        for (const key of pathKeys) {
-          if (typeof output.args[key] === "string") {
-            output.args[key] = rewritePath(output.args[key], oldDir, newDir)
-          }
-        }
-      }
+      const { newDir } = override
 
+      // Inject newDir as default path for tools that fall back to Instance.directory
       if (input.tool === "bash") {
         if (!output.args.workdir) output.args.workdir = newDir
-        if (typeof output.args.command === "string") {
-          output.args.command = output.args.command.replaceAll(oldDir, newDir)
-        }
+      } else if (input.tool === "glob" || input.tool === "grep") {
+        if (!output.args.path) output.args.path = newDir
       }
     },
 
@@ -100,10 +90,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       const override = dirOverrides.get(input.sessionID ?? "")
       if (!override) return
 
-      const { oldDir, newDir } = override
-      if (input.cwd === oldDir || input.cwd.startsWith(oldDir + "/")) {
-        output.env.PWD = rewritePath(input.cwd, oldDir, newDir)
-      }
+      output.env.PWD = override.newDir
     },
   }
 }
