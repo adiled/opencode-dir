@@ -28,7 +28,7 @@ Same as `/cd`, but also rewrites `path.cwd` and `path.root` in all existing assi
 
 ## After moving
 
-For a fully clean environment (updated system prompt, fresh project context), restart opencode in the target directory. The session will appear under the target project's session list.
+The session is fully operational in the new directory — system prompt, tools, and permissions are all updated immediately. When you next open opencode from the target directory, the session will appear under that project's session list.
 
 ## License
 

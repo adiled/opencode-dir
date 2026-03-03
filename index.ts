@@ -63,7 +63,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         await client.tui.showToast({
           body: {
             title: "Session directory changed",
-            message: `Now operating in ${exec.newDir}.\nRestart opencode there for a clean slate.`,
+            message: `Now operating in ${exec.newDir}.\nThis session will list under the new project on next launch.`,
             variant: "info",
             duration: 8000,
           },
