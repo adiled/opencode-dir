@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    npm version patch --no-git-tag-version
+    git add package.json
+    git commit --amend --no-edit
+  fi
+done

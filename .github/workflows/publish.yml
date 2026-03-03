@@ -14,42 +14,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - name: Resolve version
-        id: version
+      - name: Check if version is published
+        id: check
         run: |
-          LOCAL=$(node -p "require('./package.json').version")
-          PUBLISHED=$(npm view opencode-dir version 2>/dev/null || echo "0.0.0")
-          if [ "$LOCAL" = "$PUBLISHED" ]; then
-            npm version patch --no-git-tag-version
-            VERSION=$(node -p "require('./package.json').version")
-            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view opencode-dir@${VERSION} version 2>/dev/null || echo "")
+          if [ -n "$PUBLISHED" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            VERSION="$LOCAL"
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Tag and push
+      - name: Tag
+        if: steps.check.outputs.skip == 'false'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          VERSION=${{ steps.version.outputs.version }}
-          if [ "${{ steps.version.outputs.bumped }}" = "true" ]; then
-            git add package.json
-            git commit -m "chore: bump to v${VERSION}"
-          fi
-          git tag "v${VERSION}"
-          git push origin main --tags
+          git tag "v${{ steps.check.outputs.version }}"
+          git push origin "v${{ steps.check.outputs.version }}"
 
       - name: Publish
+        if: steps.check.outputs.skip == 'false'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
