@@ -4,15 +4,24 @@ Directory operations for [opencode](https://opencode.ai) sessions.
 
 When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd` and `/mv` commands to move sessions between directories at runtime.
 
-## Install
+## Setup
 
-Add to your `opencode.json`:
+Run the install script:
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/adiled/opencode-dir/main/install | bash
+```
+
+Or install manually:
+
+1. Add to `opencode.json`:
 ```json
 {
   "plugin": ["opencode-dir"]
 }
 ```
+
+2. Restart OpenCode — the plugin auto-installs the `/cd` and `/mv` commands on first load.
 
 ## Commands
 

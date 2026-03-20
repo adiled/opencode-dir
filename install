@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+COMMANDS_DIR="$CONFIG_DIR/commands"
+COMMANDS_JSON="$CONFIG_DIR/opencode.json"
+
+mkdir -p "$COMMANDS_DIR"
+
+write_command() {
+  local name="$1"
+  local desc="$2"
+  local dst="$COMMANDS_DIR/${name}.md"
+
+  if [ ! -f "$dst" ]; then
+    cat > "$dst" <<ENDOFFILE
+---
+description: $desc
+---
+
+ENDOFFILE
+    echo "Installed $dst"
+  else
+    echo "$dst already exists, skipping"
+  fi
+}
+
+write_command cd "Change session working directory"
+write_command mv "Move session and rewrite paths"
+
+if [ -f "$COMMANDS_JSON" ]; then
+  if grep -q '"opencode-dir"' "$COMMANDS_JSON" 2>/dev/null; then
+    echo "opencode-dir already in opencode.json, skipping plugin config"
+  else
+    if grep -q '"plugin"' "$COMMANDS_JSON"; then
+      sed -i 's/"plugin": \["/"plugin": ["opencode-dir", "/' "$COMMANDS_JSON"
+    else
+      sed -i 's/{"$/\{"plugin": ["opencode-dir"],/' "$COMMANDS_JSON"
+    fi
+    echo "Added opencode-dir to opencode.json"
+  fi
+else
+  cat > "$COMMANDS_JSON" <<ENDOFFILE
+{
+  "\$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-dir"]
+}
+ENDOFFILE
+  echo "Created opencode.json with opencode-dir"
+fi
+
+echo ""
+echo "Done! Restart OpenCode to use /cd and /mv"
