@@ -8,8 +8,7 @@
   "files": [
     "index.ts",
     "lib.ts",
-    "commands",
-    "install.sh"
+    "commands"
   ],
   "scripts": {
     "test": "bun test",
