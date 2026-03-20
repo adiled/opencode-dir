@@ -3,6 +3,7 @@ import { mkdirSync, appendFileSync } from "fs"
 import {
   type Override,
   type ExecResult,
+  installCommands,
   loadOverrides,
   persistOverrides,
   execMove,
@@ -32,6 +33,7 @@ const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE)
  */
 export const OpencodeDir: Plugin = async ({ client }) => {
   mkdirSync(STATE_DIR, { recursive: true })
+  installCommands()
   log("plugin loaded", { overridesRecovered: dirOverrides.size })
 
   return {

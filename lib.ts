@@ -1,7 +1,43 @@
 import { Database } from "bun:sqlite"
 import { resolve } from "path"
-import { existsSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { execSync } from "child_process"
+
+// ---------------------------------------------------------------------------
+// Commands installation
+// ---------------------------------------------------------------------------
+
+const COMMANDS: Record<string, string> = {
+  cd: `---
+description: Change session working directory
+---
+
+Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched.`,
+  mv: `---
+description: Move session and rewrite paths
+---
+
+Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location.`,
+}
+
+export function installCommands(): void {
+  try {
+    const cmdsDst = resolve(
+      process.env.OPENCODE_CONFIG_DIR ?? `${process.env.HOME}/.config/opencode`,
+      "commands",
+    )
+    if (!existsSync(cmdsDst)) mkdirSync(cmdsDst, { recursive: true })
+
+    for (const [name, content] of Object.entries(COMMANDS)) {
+      const dst = resolve(cmdsDst, `${name}.md`)
+      if (!existsSync(dst)) {
+        writeFileSync(dst, content, { mode: 0o644 })
+      }
+    }
+  } catch {
+    // Silently skip if commands can't be installed — plugin still works
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Error telemetry (zero-dep Sentry envelope API)
