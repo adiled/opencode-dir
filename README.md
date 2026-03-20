@@ -1,6 +1,6 @@
 # opencode-dir
 
-Directory operations for [opencode](https://opencode.ai) sessions.
+Change directory, move sessions, and other directory based operations for [opencode](https://opencode.ai) sessions.
 
 When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd` and `/mv` commands to move sessions between directories at runtime.
 
