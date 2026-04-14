@@ -14,6 +14,9 @@ import {
   getInitialCommit,
   resolveTarget,
   execMove,
+  execAddDir,
+  getSessionPermissions,
+  appendDirPermission,
   loadOverrides,
   persistOverrides,
   getDbPath,
@@ -449,6 +452,62 @@ describe("getDbPath", () => {
 })
 
 // ---------------------------------------------------------------------------
+// appendDirPermission
+// ---------------------------------------------------------------------------
+
+describe("appendDirPermission", () => {
+  it("appends permission rule to session with no existing permissions", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const changes = appendDirPermission(db, "ses_1", "/extra")
+    expect(changes).toBe(1)
+
+    const perms = getSessionPermissions(db, "ses_1")
+    expect(perms).toEqual([
+      { permission: "external_directory", pattern: "/extra/*", action: "allow" },
+    ])
+    db.close()
+  })
+
+  it("preserves existing permissions from cd/mv", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+    updateSession(db, "ses_1", "/new", "proj_new")
+
+    const changes = appendDirPermission(db, "ses_1", "/extra")
+    expect(changes).toBe(1)
+
+    const perms = getSessionPermissions(db, "ses_1")
+    expect(perms).toEqual([
+      { permission: "external_directory", pattern: "/new/*", action: "allow" },
+      { permission: "external_directory", pattern: "/extra/*", action: "allow" },
+    ])
+    db.close()
+  })
+
+  it("returns -1 for duplicate directory", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    appendDirPermission(db, "ses_1", "/extra")
+    const result = appendDirPermission(db, "ses_1", "/extra")
+    expect(result).toBe(-1)
+
+    const perms = getSessionPermissions(db, "ses_1")
+    expect(perms).toHaveLength(1)
+    db.close()
+  })
+
+  it("returns 0 for nonexistent session", () => {
+    const db = createTestDb()
+    const changes = appendDirPermission(db, "ses_nope", "/extra")
+    expect(changes).toBe(0)
+    db.close()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // hasSchema
 // ---------------------------------------------------------------------------
 
@@ -463,5 +522,83 @@ describe("hasSchema", () => {
     const db = new Database(":memory:")
     expect(hasSchema(db)).toBe(false)
     db.close()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// execAddDir (integration)
+// ---------------------------------------------------------------------------
+
+describe("execAddDir", () => {
+  let repo: string
+  let db: Database
+
+  beforeEach(() => {
+    repo = createGitRepo()
+    db = createTestDb()
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  it("grants access to an additional directory", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const result = execAddDir("ses_1", repo, db)
+    expect(result.result).toContain("Added directory")
+    expect(result.result).toContain(repo)
+
+    const perms = getSessionPermissions(db, "ses_1")
+    expect(perms).toEqual([
+      { permission: "external_directory", pattern: repo + "/*", action: "allow" },
+    ])
+  })
+
+  it("does not change session directory or project", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    execAddDir("ses_1", repo, db)
+
+    const session = getSessionInfo(db, "ses_1")!
+    expect(session.directory).toBe("/work")
+    expect(session.projectId).toBe("proj_1")
+  })
+
+  it("returns no-op for duplicate directory", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    execAddDir("ses_1", repo, db)
+    const result = execAddDir("ses_1", repo, db)
+    expect(result.result).toContain("already accessible")
+  })
+
+  it("returns error for nonexistent session", () => {
+    const result = execAddDir("ses_nope", repo, db)
+    expect(result.result).toContain("not found")
+  })
+
+  it("returns error for nonexistent directory", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const result = execAddDir("ses_1", "/no/such/path/xyz", db)
+    expect(result.result).toContain("Error")
+  })
+
+  it("allows adding multiple directories", () => {
+    const repo2 = createGitRepo()
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    execAddDir("ses_1", repo, db)
+    execAddDir("ses_1", repo2, db)
+
+    const perms = getSessionPermissions(db, "ses_1")
+    expect(perms).toHaveLength(2)
+    expect(perms).toEqual([
+      { permission: "external_directory", pattern: repo + "/*", action: "allow" },
+      { permission: "external_directory", pattern: repo2 + "/*", action: "allow" },
+    ])
+    rmSync(repo2, { recursive: true, force: true })
   })
 })

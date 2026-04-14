@@ -18,6 +18,11 @@ description: Move session and rewrite paths
 ---
 
 Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location.`,
+  "add-dir": `---
+description: Grant tool access to an additional directory
+---
+
+Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package.`,
 }
 
 export function installCommands(): void {
@@ -365,6 +370,37 @@ export function getCurrentDirectory(db: Database, sessionId: string): string | n
 // Core operation
 // ---------------------------------------------------------------------------
 
+/** Reads existing permission rules from a session row. */
+export function getSessionPermissions(db: Database, sessionId: string): unknown[] {
+  const row = db
+    .query("SELECT permission FROM session WHERE id = ?")
+    .get(sessionId) as { permission: string | null } | null
+  if (!row || !row.permission) return []
+  try {
+    return JSON.parse(row.permission)
+  } catch {
+    return []
+  }
+}
+
+/** Appends an external_directory permission without touching directory or project. */
+export function appendDirPermission(db: Database, sessionId: string, dir: string): number {
+  const existing = getSessionPermissions(db, sessionId)
+  const pattern = dir + "/*"
+
+  // Check for duplicate
+  const already = existing.some(
+    (r: any) => r.permission === "external_directory" && r.pattern === pattern,
+  )
+  if (already) return -1
+
+  existing.push({ permission: "external_directory", pattern, action: "allow" })
+  return db.run(
+    `UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`,
+    [JSON.stringify(existing), Date.now(), sessionId],
+  ).changes
+}
+
 export interface ExecResult {
   result: string
   oldDir?: string
@@ -432,6 +468,59 @@ export function execMove(
     return { oldDir: currentDir, newDir: dir, result: lines.join("\n") }
   } catch (e) {
     // Report full detail to Sentry, collapse for user
+    const err = e instanceof Error ? e : new Error(String(e))
+    reportError(err)
+    return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }
+  } finally {
+    if (owned) db.close()
+  }
+}
+
+/**
+ * Grants tool access to an additional directory without changing the
+ * session's working directory, project, or message history.
+ *
+ * @param db - Optional database instance (uses default path if omitted).
+ */
+export function execAddDir(
+  sessionId: string,
+  targetPath: string,
+  db?: Database,
+): ExecResult {
+  let dir: string
+  try {
+    dir = resolveTarget(targetPath).dir
+  } catch (e: unknown) {
+    return { result: `Error: ${e instanceof Error ? e.message : String(e)}` }
+  }
+
+  const owned = !db
+  if (!db) {
+    const stateDir = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
+    db = new Database(`${stateDir}/opencode.db`)
+  }
+
+  try {
+    const session = getSessionInfo(db, sessionId)
+    if (!session) {
+      return { result: `Error: session ${sessionId} not found in database.` }
+    }
+
+    const status = appendDirPermission(db, sessionId, dir)
+    if (status === -1) {
+      return { result: `Directory ${dir} is already accessible in this session.` }
+    }
+    if (status === 0) {
+      return { result: `Error: session ${sessionId} not found in database.` }
+    }
+
+    return {
+      result: [
+        `Added directory: ${dir}`,
+        `Tools can now access files under ${dir} for this session.`,
+      ].join("\n"),
+    }
+  } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e))
     reportError(err)
     return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }

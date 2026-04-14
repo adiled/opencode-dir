@@ -7,6 +7,7 @@ import {
   loadOverrides,
   persistOverrides,
   execMove,
+  execAddDir,
   reportError,
 } from "./lib"
 
@@ -39,12 +40,36 @@ export const OpencodeDir: Plugin = async ({ client }) => {
   return {
     "command.execute.before": async (input, output) => {
       log("command.execute.before", { command: input.command, sessionID: input.sessionID })
-      if (input.command !== "cd" && input.command !== "mv") return
+      if (input.command !== "cd" && input.command !== "mv" && input.command !== "add-dir") return
 
       const targetPath = input.arguments.trim()
       if (!targetPath) {
         output.parts.splice(0)
         output.parts.push({ type: "text", text: `Usage: /${input.command} <path>` })
+        return
+      }
+
+      if (input.command === "add-dir") {
+        let exec: ExecResult
+        try {
+          exec = execAddDir(input.sessionID, targetPath)
+        } catch (e: unknown) {
+          exec = { result: `Error: ${e instanceof Error ? e.message : String(e)}` }
+        }
+
+        output.parts.splice(0)
+        output.parts.push({ type: "text", text: exec.result })
+
+        if (!exec.result.startsWith("Error") && !exec.result.includes("already accessible")) {
+          await client.tui.showToast({
+            body: {
+              title: "Directory added",
+              message: `Tools can now access files under the added directory.`,
+              variant: "info",
+              duration: 5000,
+            },
+          }).catch(() => {})
+        }
         return
       }
 

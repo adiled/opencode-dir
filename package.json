@@ -19,6 +19,7 @@
     "opencode-plugin",
     "cd",
     "mv",
+    "add-dir",
     "directory",
     "monorepo"
   ],
