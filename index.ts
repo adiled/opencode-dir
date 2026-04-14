@@ -3,7 +3,6 @@ import { mkdirSync, appendFileSync } from "fs"
 import {
   type Override,
   type ExecResult,
-  installCommands,
   loadOverrides,
   persistOverrides,
   execMove,
@@ -37,7 +36,6 @@ const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE)
 
 export const OpencodeDir: Plugin = async ({ client }) => {
   mkdirSync(STATE_DIR, { recursive: true })
-  installCommands()
   log("plugin loaded", { overridesRecovered: dirOverrides.size })
 
   const ocVersion = getOpencodeVersion()
@@ -69,6 +67,22 @@ export const OpencodeDir: Plugin = async ({ client }) => {
   }).catch(() => {})
 
   return {
+    config: async (input) => {
+      input.command ??= {}
+      input.command.cd = {
+        description: "Change session working directory",
+        template: "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched.",
+      }
+      input.command.mv = {
+        description: "Move session and rewrite paths",
+        template: "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location.",
+      }
+      input.command["add-dir"] = {
+        description: "Grant tool access to an additional directory",
+        template: "Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package.",
+      }
+    },
+
     "command.execute.before": async (input, output) => {
       log("command.execute.before", { command: input.command, sessionID: input.sessionID })
       if (input.command !== "cd" && input.command !== "mv" && input.command !== "add-dir") return

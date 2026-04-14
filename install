@@ -2,31 +2,18 @@
 set -euo pipefail
 
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
-COMMANDS_DIR="$CONFIG_DIR/commands"
 COMMANDS_JSON="$CONFIG_DIR/opencode.json"
-REPO="adiled/opencode-dir"
-RAW="https://raw.githubusercontent.com/$REPO/main"
 
-mkdir -p "$COMMANDS_DIR"
-
-for cmd in cd mv; do
-  dst="$COMMANDS_DIR/${cmd}.md"
-  if [ ! -f "$dst" ]; then
-    curl -fsSL "$RAW/commands/${cmd}.md" -o "$dst"
-    echo "Installed $dst"
-  else
-    echo "$dst already exists, skipping"
-  fi
-done
+mkdir -p "$CONFIG_DIR"
 
 if [ -f "$COMMANDS_JSON" ]; then
   if grep -q '"opencode-dir"' "$COMMANDS_JSON" 2>/dev/null; then
-    echo "opencode-dir already in opencode.json, skipping plugin config"
+    echo "opencode-dir already in opencode.json, skipping"
   else
     if grep -q '"plugin"' "$COMMANDS_JSON"; then
-      sed -i 's/"plugin": \["/"plugin": ["opencode-dir", "/' "$COMMANDS_JSON"
+      sed -i '' 's/"plugin": \["/"plugin": ["opencode-dir", "/' "$COMMANDS_JSON"
     else
-      sed -i 's/{"$/\{"plugin": ["opencode-dir"],/' "$COMMANDS_JSON"
+      sed -i '' 's/{$/{"plugin": ["opencode-dir"],/' "$COMMANDS_JSON"
     fi
     echo "Added opencode-dir to opencode.json"
   fi
@@ -41,4 +28,4 @@ EOF
 fi
 
 echo ""
-echo "Done! Restart OpenCode to use /cd and /mv"
+echo "Done! Restart opencode to use /cd, /mv, and /add-dir"
