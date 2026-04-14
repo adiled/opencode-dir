@@ -9,6 +9,9 @@ import {
   execMove,
   execAddDir,
   reportError,
+  getOpencodeVersion,
+  meetsMinVersion,
+  MIN_OPENCODE_VERSION,
 } from "./lib"
 
 const STATE_DIR = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
@@ -23,19 +26,28 @@ function log(...args: unknown[]) {
   appendFileSync(LOG_FILE, `[${ts}] ${line}\n`)
 }
 
-const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE)
+// Recover persisted overrides on load (survives opencode restarts)
+const dirOverrides: Map<string, Override> = loadOverrides(
+  `${STATE_DIR}/opencode-dir-overrides.json`,
+)
 
-/**
- * opencode-dir plugin — adds `/cd` and `/mv` commands for moving sessions
- * between directories at runtime.
- *
- * `/cd <path>` changes where tools operate without touching message history.
- * `/mv <path>` does the same and rewrites historical paths in messages.
- */
 export const OpencodeDir: Plugin = async ({ client }) => {
   mkdirSync(STATE_DIR, { recursive: true })
   installCommands()
   log("plugin loaded", { overridesRecovered: dirOverrides.size })
+
+  const ocVersion = getOpencodeVersion()
+  log("opencode version", { version: ocVersion, minimum: MIN_OPENCODE_VERSION })
+  if (ocVersion && !meetsMinVersion(ocVersion, MIN_OPENCODE_VERSION)) {
+    await client.tui.showToast({
+      body: {
+        title: "opencode-dir: update required",
+        message: `opencode ${MIN_OPENCODE_VERSION}+ is required, you have ${ocVersion}. Some features may not work.`,
+        variant: "warning",
+        duration: 10000,
+      },
+    }).catch(() => {})
+  }
 
   return {
     "command.execute.before": async (input, output) => {

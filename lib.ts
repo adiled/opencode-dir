@@ -132,6 +132,49 @@ export function persistOverrides(path: string, map: Map<string, Override>) {
   writeFileSync(path, JSON.stringify([...map.entries()]), { mode: 0o600 })
 }
 
+
+// ---------------------------------------------------------------------------
+// Version check
+// ---------------------------------------------------------------------------
+
+export const MIN_OPENCODE_VERSION = "1.4.3"
+
+/**
+ * Reads the opencode version from the `OPENCODE_VERSION` global
+ * (injected at build time by opencode).
+ * Returns `null` when the global is absent (e.g. very old builds).
+ */
+export function getOpencodeVersion(): string | null {
+  try {
+    // eslint-disable-next-line no-undef
+    return typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Compares two semver strings (major.minor.patch only).
+ * Returns true if `version` >= `minimum`.
+ * Returns true for non-semver values (e.g. "local") to avoid
+ * false positives on dev builds.
+ */
+export function meetsMinVersion(version: string, minimum: string): boolean {
+  const parse = (v: string) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v)
+    return m ? [+m[1], +m[2], +m[3]] : null
+  }
+  const v = parse(version)
+  const min = parse(minimum)
+  if (!v || !min) return true // non-semver → don't block
+  for (let i = 0; i < 3; i++) {
+    if (v[i] > min[i]) return true
+    if (v[i] < min[i]) return false
+  }
+  return true // equal
+}
+
+
 // ---------------------------------------------------------------------------
 // Git
 // ---------------------------------------------------------------------------
