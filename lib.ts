@@ -496,11 +496,19 @@ export function execAddDir(
 
   const owned = !db
   if (!db) {
-    const stateDir = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
-    db = new Database(`${stateDir}/opencode.db`)
+    db = new Database(getDbPath())
   }
 
   try {
+    if (!hasSchema(db)) {
+      return {
+        result:
+          "Error: opencode database does not contain expected tables. " +
+          "The plugin may be opening a stale or wrong database file " +
+          `(${getDbPath()}). Ensure opencode has been started at least once.`,
+      }
+    }
+
     const session = getSessionInfo(db, sessionId)
     if (!session) {
       return { result: `Error: session ${sessionId} not found in database.` }
