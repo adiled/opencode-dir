@@ -1,2 +1,2 @@
-config.json
 test-server-probe.ts
+e2e-patch.*

@@ -34,7 +34,7 @@ const SANDBOX = mkdtempSync(join(tmpdir(), "ocd-e2e-"))
 const DATA_DIR = join(SANDBOX, "data")
 const CONFIG_DIR = join(SANDBOX, "config")
 const PROJECT_DIR = join(SANDBOX, "project")
-const PORT = 19800 + Math.floor(Math.random() * 100)
+const PORT = 30000 + Math.floor(Math.random() * 30000)
 const SERVER_URL = `http://127.0.0.1:${PORT}`
 const OPENCODE_SRC = join(process.env.HOME ?? "", "opencode")
 
@@ -82,6 +82,49 @@ async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
   throw new Error(`Server did not become ready within ${timeoutMs}ms`)
 }
 
+/** Check that a port is free by trying to listen on it briefly. */
+async function assertPortFree(port: number): Promise<void> {
+  const net = await import("net")
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer()
+    srv.once("error", (err: NodeJS.ErrnoException) => {
+      reject(new Error(`Port ${port} is already in use: ${err.code}`))
+    })
+    srv.listen(port, "127.0.0.1", () => {
+      srv.close(() => resolve())
+    })
+  })
+}
+
+/** Kill the server process with SIGTERM, escalating to SIGKILL after 3s. */
+function killServer(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!serverProc) return resolve()
+    const proc = serverProc
+    serverProc = null
+
+    let resolved = false
+    const done = () => {
+      if (resolved) return
+      resolved = true
+      resolve()
+    }
+
+    proc.on("exit", done)
+    proc.on("error", done)
+
+    // Try graceful SIGTERM first
+    proc.kill("SIGTERM")
+
+    // Escalate to SIGKILL after 3 seconds
+    setTimeout(() => {
+      try { proc.kill("SIGKILL") } catch {}
+      // Give SIGKILL 1s to take effect, then resolve anyway
+      setTimeout(done, 1000)
+    }, 3000)
+  })
+}
+
 async function apiCreateSession(): Promise<string> {
   const res = await fetch(`${SERVER_URL}/session`, {
     method: "POST",
@@ -126,6 +169,9 @@ function readSession(sessionId: string) {
 // ── Server lifecycle ────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  // Ensure port is free before starting (prevents collisions from zombie servers)
+  await assertPortFree(PORT)
+
   // Check opencode source exists
   if (!existsSync(join(OPENCODE_SRC, "packages/opencode"))) {
     throw new Error(`opencode source not found at ${OPENCODE_SRC}. Clone it to ~/opencode to run e2e tests.`)
@@ -193,15 +239,19 @@ beforeAll(async () => {
   process.env.OPENCODE_DB = dbPath
 }, 30000)
 
-afterAll(() => {
-  if (serverProc) {
-    serverProc.kill("SIGTERM")
-    serverProc = null
-  }
+// ── Crash-proof cleanup: kill server on ANY exit ─────────────────────────────
+const cleanup = () => { killServer().catch(() => {}) }
+process.on("exit", cleanup)
+process.on("SIGINT", () => { cleanup(); process.exit(130) })
+process.on("SIGTERM", () => { cleanup(); process.exit(143) })
+process.on("uncaughtException", (err) => { console.error(err); cleanup(); process.exit(1) })
+
+afterAll(async () => {
+  await killServer()
   delete process.env.OPENCODE_DB
-  // Small delay to let server release DB lock
-  try { Bun.sleepSync(500) } catch {}
-  rmSync(SANDBOX, { recursive: true, force: true })
+  // Give the OS a moment to release the port before sandbox removal
+  await new Promise((r) => setTimeout(r, 500))
+  try { rmSync(SANDBOX, { recursive: true, force: true }) } catch {}
 })
 
 // ── Tests ───────────────────────────────────────────────────────────────────
