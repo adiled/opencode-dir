@@ -302,15 +302,22 @@ export function ensureProject(db: Database, projectId: string, worktree: string)
 /**
  * Updates a session's directory, project, and permission in one statement.
  *
- * Writes an `external_directory` allow rule to `session.permission` so
+ * Appends an `external_directory` allow rule to `session.permission` so
  * `PermissionNext` auto-allows tool access to the target tree.
+ * Preserves existing permission rules (e.g. from prior /cd, /mv, /add-dir).
  * `prompt()` loads the session AFTER `command.execute.before` fires,
  * so the rule is available when tools run.
  */
 export function updateSession(db: Database, sessionId: string, newDir: string, newProjectId: string): number {
-  const permission = JSON.stringify([
-    { permission: "external_directory", pattern: newDir + "/*", action: "allow" },
-  ])
+  const existing = getSessionPermissions(db, sessionId)
+  const pattern = newDir + "/*"
+  const already = existing.some(
+    (r: any) => r.permission === "external_directory" && r.pattern === pattern,
+  )
+  if (!already) {
+    existing.push({ permission: "external_directory", pattern, action: "allow" })
+  }
+  const permission = JSON.stringify(existing)
   return db.run(
     `UPDATE session SET directory = ?, project_id = ?, permission = ?, time_updated = ? WHERE id = ?`,
     [newDir, newProjectId, permission, Date.now(), sessionId],
