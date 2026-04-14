@@ -1,4 +1,4 @@
-import { type Plugin } from "@opencode-ai/plugin"
+import { type Plugin, type PluginModule } from "@opencode-ai/plugin"
 import { mkdirSync, appendFileSync } from "fs"
 import {
   type Override,
@@ -26,10 +26,13 @@ function log(...args: unknown[]) {
   appendFileSync(LOG_FILE, `[${ts}] ${line}\n`)
 }
 
-// Recover persisted overrides on load (survives opencode restarts)
-const dirOverrides: Map<string, Override> = loadOverrides(
-  `${STATE_DIR}/opencode-dir-overrides.json`,
-)
+const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE)
+
+// ── Commands ────────────────────────────────────────────────────────────────
+
+// /cd  — change session directory (no message rewrite)
+// /mv  — move session directory AND rewrite message paths
+// /add-dir — grant tool access to an additional directory
 
 export const OpencodeDir: Plugin = async ({ client }) => {
   mkdirSync(STATE_DIR, { recursive: true })
@@ -156,3 +159,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
     },
   }
 }
+
+export default {
+  id: "opencode-dir",
+  server: OpencodeDir,
+} satisfies PluginModule
