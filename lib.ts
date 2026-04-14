@@ -471,17 +471,19 @@ export function execMove(
     }
 
     if (!hasSchema(db)) {
-      return {
-        result:
-          "Error: opencode database does not contain expected tables. " +
-          "The plugin may be opening a stale or wrong database file " +
-          `(${getDbPath()}). Ensure opencode has been started at least once.`,
-      }
+      const msg =
+        "Error: opencode database does not contain expected tables. " +
+        "The plugin may be opening a stale or wrong database file " +
+        `(${getDbPath()}). Ensure opencode has been started at least once.`
+      reportError(new Error(msg))
+      return { result: msg }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
-      return { result: `Error: session ${sessionId} not found in database.` }
+      const msg = `Error: session ${sessionId} not found in database.`
+      reportError(new Error(msg))
+      return { result: msg }
     }
 
     const currentDir = getCurrentDirectory(db, sessionId) ?? session.directory
@@ -492,7 +494,9 @@ export function execMove(
     ensureProject(db, projectId, dir)
     const changes = updateSession(db, sessionId, dir, projectId)
     if (changes === 0) {
-      return { result: `Error: session ${sessionId} not found in database.` }
+      const msg = `Error: session ${sessionId} not found after update.`
+      reportError(new Error(msg))
+      return { result: msg }
     }
 
     const lines = rewrite
@@ -510,7 +514,6 @@ export function execMove(
 
     return { oldDir: currentDir, newDir: dir, result: lines.join("\n") }
   } catch (e) {
-    // Report full detail to Sentry, collapse for user
     const err = e instanceof Error ? e : new Error(String(e))
     reportError(err)
     return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }
@@ -546,17 +549,19 @@ export function execAddDir(
     }
 
     if (!hasSchema(db)) {
-      return {
-        result:
-          "Error: opencode database does not contain expected tables. " +
-          "The plugin may be opening a stale or wrong database file " +
-          `(${getDbPath()}). Ensure opencode has been started at least once.`,
-      }
+      const msg =
+        "Error: opencode database does not contain expected tables. " +
+        "The plugin may be opening a stale or wrong database file " +
+        `(${getDbPath()}). Ensure opencode has been started at least once.`
+      reportError(new Error(msg))
+      return { result: msg }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
-      return { result: `Error: session ${sessionId} not found in database.` }
+      const msg = `Error: session ${sessionId} not found in database.`
+      reportError(new Error(msg))
+      return { result: msg }
     }
 
     const status = appendDirPermission(db, sessionId, dir)
@@ -564,7 +569,9 @@ export function execAddDir(
       return { result: `Directory ${dir} is already accessible in this session.` }
     }
     if (status === 0) {
-      return { result: `Error: session ${sessionId} not found in database.` }
+      const msg = `Error: session ${sessionId} not found in database.`
+      reportError(new Error(msg))
+      return { result: msg }
     }
 
     return {
