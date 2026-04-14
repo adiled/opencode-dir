@@ -149,11 +149,50 @@ export function getInitialCommit(dir: string): string | null {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Database
-// ---------------------------------------------------------------------------
+/**
+ * Resolves the opencode database path, mirroring the logic in
+ * `packages/opencode/src/storage/db.ts → Database.getChannelPath()`.
+ *
+ * Resolution order:
+ * 1. `OPENCODE_DB` env — absolute path or name relative to data dir
+ * 2. Channel-based: `opencode.db` for latest/beta/prod, else `opencode-{channel}.db`
+ * 3. Fallback: `opencode.db`
+ */
+export function getDbPath(): string {
+  const dataDir = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
 
-/** Creates the minimal schema required by the plugin in a fresh database. */
+  // OPENCODE_DB override (mirrors Flag.OPENCODE_DB)
+  const dbOverride = process.env.OPENCODE_DB
+  if (dbOverride) {
+    if (dbOverride === ":memory:") return dbOverride
+    if (dbOverride.startsWith("/")) return dbOverride
+    return `${dataDir}/${dbOverride}`
+  }
+
+  // Channel-based naming
+  const channel = process.env.OPENCODE_CHANNEL ?? "latest"
+  if (["latest", "beta", "prod"].includes(channel) || process.env.OPENCODE_DISABLE_CHANNEL_DB) {
+    return `${dataDir}/opencode.db`
+  }
+  const safe = channel.replace(/[^a-zA-Z0-9._-]/g, "-")
+  return `${dataDir}/opencode-${safe}.db`
+}
+
+/** Returns true if the database has the tables the plugin needs. */
+export function hasSchema(db: Database): boolean {
+  const row = db
+    .query("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
+    .get() as { name: string } | null
+  return row !== null
+}
+
+
+
+/**
+ * Creates the minimal schema required by the plugin in a fresh database.
+ *
+ * Only used in tests — production relies on opencode's drizzle migrations.
+ */
 export function createSchema(db: Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS project (
@@ -348,11 +387,19 @@ export function execMove(
   const { dir, projectId } = resolveTarget(targetPath)
   const owned = !db
   if (!db) {
-    const stateDir = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
-    db = new Database(`${stateDir}/opencode.db`)
+    db = new Database(getDbPath())
   }
 
   try {
+    if (!hasSchema(db)) {
+      return {
+        result:
+          "Error: opencode database does not contain expected tables. " +
+          "The plugin may be opening a stale or wrong database file " +
+          `(${getDbPath()}). Ensure opencode has been started at least once.`,
+      }
+    }
+
     const session = getSessionInfo(db, sessionId)
     if (!session) {
       return { result: `Error: session ${sessionId} not found in database.` }

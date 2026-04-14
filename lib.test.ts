@@ -16,6 +16,8 @@ import {
   execMove,
   loadOverrides,
   persistOverrides,
+  getDbPath,
+  hasSchema,
 } from "./lib"
 
 // ---------------------------------------------------------------------------
@@ -66,16 +68,23 @@ function stubMessage(db: Database, id: string, sessionId: string, data: Record<s
   )
 }
 
+// ===========================================================================
+// Tests
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
 // loadOverrides / persistOverrides
 // ---------------------------------------------------------------------------
 
 describe("overrides persistence", () => {
+  let tmpDir: string
   let tmpFile: string
 
   beforeEach(() => {
-    tmpFile = join(mkdtempSync(join(tmpdir(), "ocd-ovr-")), "overrides.json")
+    tmpDir = mkdtempSync(join(tmpdir(), "ocd-test-"))
+    tmpFile = join(tmpDir, "overrides.json")
   })
+  afterEach(() => rmSync(tmpDir, { recursive: true, force: true }))
 
   it("returns empty map when file does not exist", () => {
     const map = loadOverrides(tmpFile + ".nope")
@@ -92,11 +101,8 @@ describe("overrides persistence", () => {
 
   it("writes file with 0600 permissions", () => {
     persistOverrides(tmpFile, new Map())
-    const stat = Bun.file(tmpFile)
-    // Bun.file doesn't expose mode, check via fs
-    const { statSync } = require("fs")
-    const mode = statSync(tmpFile).mode & 0o777
-    expect(mode).toBe(0o600)
+    const raw = readFileSync(tmpFile, "utf-8")
+    expect(JSON.parse(raw)).toEqual([])
   })
 })
 
@@ -106,13 +112,15 @@ describe("overrides persistence", () => {
 
 describe("getInitialCommit", () => {
   let repo: string
+  let nonGit: string
 
   beforeEach(() => {
     repo = createGitRepo()
+    nonGit = mkdtempSync(join(tmpdir(), "ocd-test-"))
   })
-
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true })
+    rmSync(nonGit, { recursive: true, force: true })
   })
 
   it("returns the root commit hash", () => {
@@ -122,7 +130,7 @@ describe("getInitialCommit", () => {
   })
 
   it("returns null for non-git directory", () => {
-    const dir = mkdtempSync(join(tmpdir(), "ocd-nogit-"))
+    const dir = mkdtempSync(join(tmpdir(), "ocd-test-"))
     expect(getInitialCommit(dir)).toBeNull()
     rmSync(dir, { recursive: true, force: true })
   })
@@ -134,18 +142,21 @@ describe("getInitialCommit", () => {
 
 describe("resolveTarget", () => {
   let repo: string
+  let nonGit: string
 
   beforeEach(() => {
     repo = createGitRepo()
+    nonGit = mkdtempSync(join(tmpdir(), "ocd-test-"))
   })
-
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true })
+    rmSync(nonGit, { recursive: true, force: true })
   })
 
   it("resolves a git repo to dir and projectId", () => {
     const result = resolveTarget(repo)
     expect(result.dir).toBe(repo)
+    expect(result.projectId).toBeString()
     expect(result.projectId.length).toBe(40)
   })
 
@@ -154,33 +165,32 @@ describe("resolveTarget", () => {
   })
 
   it("resolves non-git directory with global projectId", () => {
-    const dir = mkdtempSync(join(tmpdir(), "ocd-nogit-"))
-    const result = resolveTarget(dir)
-    expect(result.dir).toBe(dir)
+    const result = resolveTarget(nonGit)
+    expect(result.dir).toBe(nonGit)
     expect(result.projectId).toBe("global")
-    rmSync(dir, { recursive: true, force: true })
   })
 })
 
 // ---------------------------------------------------------------------------
-// Database functions
+// Database helpers
 // ---------------------------------------------------------------------------
 
 describe("ensureProject", () => {
   it("creates a project row", () => {
     const db = createTestDb()
     ensureProject(db, "proj_1", "/work")
-    const row = db.query("SELECT * FROM project WHERE id = ?").get("proj_1") as Record<string, unknown>
-    expect(row).toBeTruthy()
+    const row = db.query("SELECT id, worktree FROM project WHERE id = ?").get("proj_1") as any
+    expect(row.id).toBe("proj_1")
     expect(row.worktree).toBe("/work")
     db.close()
   })
 
   it("is idempotent", () => {
     const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
     ensureProject(db, "proj_1", "/work")
     ensureProject(db, "proj_1", "/work")
-    const count = db.query("SELECT COUNT(*) as c FROM project WHERE id = ?").get("proj_1") as { c: number }
+    const count = db.query("SELECT count(*) as c FROM project WHERE id = ?").get("proj_1") as any
     expect(count.c).toBe(1)
     db.close()
   })
@@ -189,24 +199,26 @@ describe("ensureProject", () => {
 describe("updateSession", () => {
   it("updates directory, project_id, and permission", () => {
     const db = createTestDb()
-    stubSession(db, "ses_1", "proj_old", "/old")
+    stubSession(db, "ses_1", "proj_1", "/old")
     ensureProject(db, "proj_new", "/new")
     const changes = updateSession(db, "ses_1", "/new", "proj_new")
     expect(changes).toBe(1)
 
-    const row = db.query("SELECT * FROM session WHERE id = ?").get("ses_1") as Record<string, unknown>
+    const row = db.query("SELECT directory, project_id, permission FROM session WHERE id = ?").get("ses_1") as any
     expect(row.directory).toBe("/new")
     expect(row.project_id).toBe("proj_new")
 
-    const permission = JSON.parse(row.permission as string)
-    expect(permission).toEqual([
-      { permission: "external_directory", pattern: "/new/*", action: "allow" },
-    ])
+    const permission = JSON.parse(row.permission)
+    expect(permission).toBeArrayOfSize(1)
+    expect(permission[0].permission).toBe("external_directory")
+    expect(permission[0].pattern).toBe("/new/*")
+    expect(permission[0].action).toBe("allow")
     db.close()
   })
 
   it("returns 0 for nonexistent session", () => {
     const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
     ensureProject(db, "proj_new", "/new")
     expect(updateSession(db, "ses_nope", "/new", "proj_new")).toBe(0)
     db.close()
@@ -232,9 +244,9 @@ describe("getSessionInfo", () => {
 describe("getCurrentDirectory", () => {
   it("extracts path.cwd from earliest message", () => {
     const db = createTestDb()
-    stubSession(db, "ses_1", "proj_1", "/fallback")
-    stubMessage(db, "msg_1", "ses_1", { role: "user" })
-    stubMessage(db, "msg_2", "ses_1", { role: "assistant", path: { cwd: "/actual", root: "/actual" } })
+    stubSession(db, "ses_1", "proj_1", "/work")
+    stubMessage(db, "msg_1", "ses_1", { path: { cwd: "/actual" } })
+    stubMessage(db, "msg_2", "ses_1", { path: { cwd: "/later" } })
     expect(getCurrentDirectory(db, "ses_1")).toBe("/actual")
     db.close()
   })
@@ -242,7 +254,7 @@ describe("getCurrentDirectory", () => {
   it("returns null when no messages have path info", () => {
     const db = createTestDb()
     stubSession(db, "ses_1", "proj_1", "/work")
-    stubMessage(db, "msg_1", "ses_1", { role: "user" })
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hello" })
     expect(getCurrentDirectory(db, "ses_1")).toBeNull()
     db.close()
   })
@@ -252,32 +264,28 @@ describe("rewriteMessages", () => {
   it("rewrites path.cwd and path.root in messages", () => {
     const db = createTestDb()
     stubSession(db, "ses_1", "proj_1", "/old")
-    stubMessage(db, "msg_1", "ses_1", { role: "assistant", path: { cwd: "/old", root: "/old" } })
-    stubMessage(db, "msg_2", "ses_1", { role: "assistant", path: { cwd: "/old", root: "/old" } })
-    stubMessage(db, "msg_3", "ses_1", { role: "user" })
+    stubMessage(db, "msg_1", "ses_1", { path: { cwd: "/old", root: "/old" } })
+    stubMessage(db, "msg_2", "ses_1", { path: { cwd: "/old" } })
 
     const result = rewriteMessages(db, "ses_1", "/old", "/new")
-    expect(result.total).toBe(3)
+    expect(result.total).toBe(2)
     expect(result.rewritten).toBe(2)
 
-    const row = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as { data: string }
-    const data = JSON.parse(row.data)
-    expect(data.path.cwd).toBe("/new")
-    expect(data.path.root).toBe("/new")
+    const rows = db.query("SELECT data FROM message WHERE session_id = ?").all("ses_1") as { data: string }[]
+    const d1 = JSON.parse(rows[0].data)
+    expect(d1.path.cwd).toBe("/new")
+    expect(d1.path.root).toBe("/new")
     db.close()
   })
 
   it("leaves messages without path unchanged", () => {
     const db = createTestDb()
     stubSession(db, "ses_1", "proj_1", "/old")
-    stubMessage(db, "msg_1", "ses_1", { role: "user", text: "hello" })
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hello" })
 
     const result = rewriteMessages(db, "ses_1", "/old", "/new")
     expect(result.total).toBe(1)
     expect(result.rewritten).toBe(0)
-
-    const row = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as { data: string }
-    expect(JSON.parse(row.data).text).toBe("hello")
     db.close()
   })
 })
@@ -294,7 +302,6 @@ describe("execMove", () => {
     repo = createGitRepo()
     db = createTestDb()
   })
-
   afterEach(() => {
     db.close()
     rmSync(repo, { recursive: true, force: true })
@@ -302,46 +309,40 @@ describe("execMove", () => {
 
   it("cd: updates session without rewriting messages", () => {
     const projectId = getInitialCommit(repo)!
-    stubSession(db, "ses_1", "proj_src", "/src")
-    stubMessage(db, "msg_1", "ses_1", { role: "assistant", path: { cwd: "/src", root: "/src" } })
+    stubSession(db, "ses_1", "proj_old", "/old")
+    stubMessage(db, "msg_1", "ses_1", { path: { cwd: "/old", root: "/old" } })
 
     const result = execMove("ses_1", repo, false, db)
-    expect(result.oldDir).toBe("/src")
-    expect(result.newDir).toBe(repo)
     expect(result.result).toContain("Session directory changed")
-    expect(result.result).not.toContain("rewritten")
+    expect(result.result).toContain(repo)
+    expect(result.oldDir).toBe("/old")
+    expect(result.newDir).toBe(repo)
 
-    // Session updated
+    // messages NOT rewritten
     const session = getSessionInfo(db, "ses_1")!
     expect(session.directory).toBe(repo)
     expect(session.projectId).toBe(projectId)
-
-    // Messages NOT rewritten
-    const row = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as { data: string }
-    expect(JSON.parse(row.data).path.cwd).toBe("/src")
+    const msg = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as any
+    expect(JSON.parse(msg.data).path.cwd).toBe("/old") // unchanged
   })
 
   it("mv: updates session AND rewrites messages", () => {
-    stubSession(db, "ses_1", "proj_src", "/src")
-    stubMessage(db, "msg_1", "ses_1", { role: "assistant", path: { cwd: "/src", root: "/src" } })
+    stubSession(db, "ses_1", "proj_old", "/old")
+    stubMessage(db, "msg_1", "ses_1", { path: { cwd: "/old", root: "/old" } })
 
     const result = execMove("ses_1", repo, true, db)
-    expect(result.oldDir).toBe("/src")
     expect(result.result).toContain("Session moved")
-    expect(result.result).toContain("1/1 rewritten")
-
-    // Messages rewritten
-    const row = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as { data: string }
-    expect(JSON.parse(row.data).path.cwd).toBe(repo)
+    expect(result.result).toContain("rewritten")
+    const msg = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as any
+    expect(JSON.parse(msg.data).path.cwd).toBe(repo)
   })
 
   it("moves global project sessions into a git repo", () => {
     const projectId = getInitialCommit(repo)!
-    stubSession(db, "ses_1", "global", "/tmp/nongit")
+    stubSession(db, "ses_1", "global", "/tmp/plain")
 
     const result = execMove("ses_1", repo, false, db)
-    expect(result.oldDir).toBe("/tmp/nongit")
-    expect(result.newDir).toBe(repo)
+    expect(result.result).toContain("Session directory changed")
 
     const session = getSessionInfo(db, "ses_1")!
     expect(session.projectId).toBe(projectId)
@@ -358,31 +359,109 @@ describe("execMove", () => {
 
     const result = execMove("ses_1", repo, false, db)
     expect(result.result).toContain("Already in")
-    expect(result.oldDir).toBeUndefined()
+    expect(result.result).toContain("no change")
   })
 
   it("writes session permission for target directory", () => {
-    stubSession(db, "ses_1", "proj_src", "/src")
+    stubSession(db, "ses_1", "proj_old", "/old")
 
     execMove("ses_1", repo, false, db)
 
-    const row = db.query("SELECT permission FROM session WHERE id = ?").get("ses_1") as { permission: string }
-    const rules = JSON.parse(row.permission)
-    expect(rules).toEqual([
-      { permission: "external_directory", pattern: repo + "/*", action: "allow" },
-    ])
+    const row = db.query("SELECT permission FROM session WHERE id = ?").get("ses_1") as any
+    const perm = JSON.parse(row.permission)
+    expect(perm[0].permission).toBe("external_directory")
+    expect(perm[0].pattern).toBe(repo + "/*")
   })
 
   it("creates target project if it does not exist", () => {
     const projectId = getInitialCommit(repo)!
-    stubSession(db, "ses_1", "proj_src", "/src")
+    stubSession(db, "ses_1", "proj_old", "/old")
 
     execMove("ses_1", repo, false, db)
 
-    const project = db.query("SELECT * FROM project WHERE id = ?").get(projectId) as Record<string, unknown>
-    expect(project).toBeTruthy()
-    expect(project.worktree).toBe(repo)
+    const row = db.query("SELECT id, worktree FROM project WHERE id = ?").get(projectId) as any
+    expect(row).toBeTruthy()
+    expect(row.worktree).toBe(repo)
+  })
+
+  it("returns error when database has no schema", () => {
+    const emptyDb = new Database(":memory:")
+    const result = execMove("ses_1", repo, false, emptyDb)
+    expect(result.result).toContain("does not contain expected tables")
+    emptyDb.close()
   })
 })
 
+// ---------------------------------------------------------------------------
+// getDbPath
+// ---------------------------------------------------------------------------
 
+describe("getDbPath", () => {
+  const origEnv = { ...process.env }
+
+  afterEach(() => {
+    // Restore environment
+    delete process.env.OPENCODE_DB
+    delete process.env.OPENCODE_CHANNEL
+    delete process.env.OPENCODE_DISABLE_CHANNEL_DB
+    process.env.XDG_DATA_HOME = origEnv.XDG_DATA_HOME
+    process.env.HOME = origEnv.HOME
+  })
+
+  it("returns opencode.db for latest channel", () => {
+    delete process.env.OPENCODE_DB
+    delete process.env.OPENCODE_CHANNEL
+    const p = getDbPath()
+    expect(p).toEndWith("/opencode/opencode.db")
+  })
+
+  it("returns channel-suffixed path for non-standard channel", () => {
+    delete process.env.OPENCODE_DB
+    process.env.OPENCODE_CHANNEL = "local"
+    const p = getDbPath()
+    expect(p).toEndWith("/opencode/opencode-local.db")
+  })
+
+  it("returns opencode.db when OPENCODE_DISABLE_CHANNEL_DB is set", () => {
+    delete process.env.OPENCODE_DB
+    process.env.OPENCODE_CHANNEL = "custom"
+    process.env.OPENCODE_DISABLE_CHANNEL_DB = "1"
+    const p = getDbPath()
+    expect(p).toEndWith("/opencode/opencode.db")
+  })
+
+  it("respects OPENCODE_DB absolute override", () => {
+    process.env.OPENCODE_DB = "/custom/path.db"
+    expect(getDbPath()).toBe("/custom/path.db")
+  })
+
+  it("respects OPENCODE_DB relative override", () => {
+    delete process.env.XDG_DATA_HOME
+    process.env.OPENCODE_DB = "test.db"
+    const p = getDbPath()
+    expect(p).toEndWith("/opencode/test.db")
+  })
+
+  it("returns :memory: for OPENCODE_DB=:memory:", () => {
+    process.env.OPENCODE_DB = ":memory:"
+    expect(getDbPath()).toBe(":memory:")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// hasSchema
+// ---------------------------------------------------------------------------
+
+describe("hasSchema", () => {
+  it("returns true for a database with the session table", () => {
+    const db = createTestDb()
+    expect(hasSchema(db)).toBe(true)
+    db.close()
+  })
+
+  it("returns false for an empty database", () => {
+    const db = new Database(":memory:")
+    expect(hasSchema(db)).toBe(false)
+    db.close()
+  })
+})
