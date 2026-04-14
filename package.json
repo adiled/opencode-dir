@@ -11,8 +11,7 @@
     "commands"
   ],
   "scripts": {
-    "test": "bun test",
-    "prepare": "git config core.hooksPath .githooks"
+    "test": "bun test"
   },
   "keywords": [
     "opencode",

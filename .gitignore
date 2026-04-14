@@ -1,2 +1,2 @@
-test-server-probe.ts
 e2e-patch.*
+.githooks
