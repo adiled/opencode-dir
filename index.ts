@@ -69,7 +69,9 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         try {
           exec = execAddDir(input.sessionID, targetPath)
         } catch (e: unknown) {
-          exec = { result: `Error: ${e instanceof Error ? e.message : String(e)}` }
+          const err = e instanceof Error ? e : new Error(String(e))
+          reportError(err)
+          exec = { result: `Error: ${err.message}` }
         }
 
         output.parts.splice(0)
@@ -92,7 +94,9 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       try {
         exec = execMove(input.sessionID, targetPath, input.command === "mv")
       } catch (e: unknown) {
-        exec = { result: `Error: ${e instanceof Error ? e.message : String(e)}` }
+        const err = e instanceof Error ? e : new Error(String(e))
+        reportError(err)
+        exec = { result: `Error: ${err.message}` }
       }
 
       output.parts.splice(0)

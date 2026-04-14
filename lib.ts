@@ -463,13 +463,13 @@ export function execMove(
   rewrite: boolean,
   db?: Database,
 ): ExecResult {
-  const { dir, projectId } = resolveTarget(targetPath)
   const owned = !db
-  if (!db) {
-    db = new Database(getDbPath())
-  }
-
   try {
+    const { dir, projectId } = resolveTarget(targetPath)
+    if (!db) {
+      db = new Database(getDbPath())
+    }
+
     if (!hasSchema(db)) {
       return {
         result:
@@ -515,7 +515,7 @@ export function execMove(
     reportError(err)
     return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }
   } finally {
-    if (owned) db.close()
+    if (owned && db) db.close()
   }
 }
 
@@ -534,15 +534,17 @@ export function execAddDir(
   try {
     dir = resolveTarget(targetPath).dir
   } catch (e: unknown) {
-    return { result: `Error: ${e instanceof Error ? e.message : String(e)}` }
+    const err = e instanceof Error ? e : new Error(String(e))
+    reportError(err)
+    return { result: `Error: ${err.message}` }
   }
 
   const owned = !db
-  if (!db) {
-    db = new Database(getDbPath())
-  }
-
   try {
+    if (!db) {
+      db = new Database(getDbPath())
+    }
+
     if (!hasSchema(db)) {
       return {
         result:
@@ -576,7 +578,7 @@ export function execAddDir(
     reportError(err)
     return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }
   } finally {
-    if (owned) db.close()
+    if (owned && db) db.close()
   }
 }
 
