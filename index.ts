@@ -12,6 +12,7 @@ import {
   getOpencodeVersion,
   meetsMinVersion,
   MIN_OPENCODE_VERSION,
+  checkForUpdate,
 } from "./lib"
 
 const STATE_DIR = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
@@ -51,6 +52,21 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       },
     }).catch(() => {})
   }
+
+  // Non-blocking self-update check — purges cache if newer version exists
+  checkForUpdate().then((result) => {
+    log("update check", result)
+    if (result.updated) {
+      client.tui.showToast({
+        body: {
+          title: "opencode-dir: update available",
+          message: `v${result.to} is available (you have v${result.from}). Restart opencode to apply.`,
+          variant: "info",
+          duration: 12000,
+        },
+      }).catch(() => {})
+    }
+  }).catch(() => {})
 
   return {
     "command.execute.before": async (input, output) => {

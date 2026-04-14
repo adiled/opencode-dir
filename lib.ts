@@ -175,6 +175,61 @@ export function meetsMinVersion(version: string, minimum: string): boolean {
 }
 
 
+export interface UpdateResult {
+  updated: boolean
+  from?: string
+  to?: string
+  error?: string
+}
+
+/**
+ * Check npm registry for a newer version and purge opencode's plugin cache
+ * so it re-installs on next launch. Does NOT install — just invalidates.
+ * Returns the result so the caller can toast the user to restart.
+ */
+export async function checkForUpdate(): Promise<UpdateResult> {
+  const currentVersion = getVersion()
+  if (currentVersion === "unknown") return { updated: false }
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+
+    const res = await fetch("https://registry.npmjs.org/opencode-dir/latest", {
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    if (!res.ok) return { updated: false }
+
+    const data = (await res.json()) as { version?: string }
+    const latest = data.version
+    if (!latest) return { updated: false }
+
+    // Already up to date (or running newer/dev)
+    if (meetsMinVersion(currentVersion, latest)) return { updated: false }
+
+    // Purge opencode's arborist cache so it re-resolves on next launch.
+    // opencode caches npm plugins at: $XDG_CACHE_HOME/opencode/packages/<pkg>/
+    // Deleting node_modules + package-lock.json forces Arborist.loadVirtual()
+    // to fail, which triggers a fresh reify() with the latest version.
+    const cacheBase = `${process.env.XDG_CACHE_HOME || process.env.HOME + "/.cache"}/opencode/packages/opencode-dir`
+    const { rmSync: rm } = await import("fs")
+    try { rm(resolve(cacheBase, "node_modules"), { recursive: true, force: true }) } catch {}
+    try { rm(resolve(cacheBase, "package-lock.json"), { force: true }) } catch {}
+
+    return { updated: true, from: currentVersion, to: latest }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    // Don't report aborts or network errors — expected in offline environments
+    if (!msg.includes("abort")) {
+      reportError(new Error(`Update check failed: ${msg}`))
+    }
+    return { updated: false, error: msg }
+  }
+}
+
+
 // ---------------------------------------------------------------------------
 // Git
 // ---------------------------------------------------------------------------
