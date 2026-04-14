@@ -1,8 +1,8 @@
 # opencode-dir
 
-Change directory, move sessions, and other directory based operations for [opencode](https://opencode.ai) sessions.
+Directory operations for [opencode](https://opencode.ai) sessions — change directory, move sessions, and grant access to additional directories at runtime.
 
-When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd` and `/mv` commands to move sessions between directories at runtime.
+When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd`, `/mv`, and `/add-dir` commands to manage directory context without restarting.
 
 ## Setup
 
@@ -21,7 +21,7 @@ Or install manually:
 }
 ```
 
-2. Restart OpenCode — the plugin auto-installs the `/cd` and `/mv` commands on first load.
+2. Restart opencode — the plugin auto-installs commands on first load.
 
 ## Commands
 
@@ -31,7 +31,11 @@ Change the session's working directory. Tools (`bash`, `glob`, `grep`, `read`, `
 
 ### `/mv <path>`
 
-Same as `/cd`, but also rewrites `path.cwd` and `path.root` in all existing assistant messages to point to the new directory. Use this when you want the full conversation history to reflect the new location.
+Same as `/cd`, but also rewrites `path.cwd` and `path.root` in all existing assistant messages to point to the new directory. Use when you want the full conversation history to reflect the new location.
+
+### `/add-dir <path>`
+
+Grant tool access to an additional directory without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package. Can be called multiple times to add several directories.
 
 ## After moving
 
