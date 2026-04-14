@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
-# Usage: ./release.sh [patch|minor|major] ["release message"]
+# Usage: ./scripts/version.sh [patch|minor|major] ["release message"]
 # Bumps version in package.json, commits, tags, pushes.
 
 BUMP="${1:-patch}"
 MSG="${2:-}"
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Read current version
 CURRENT=$(node -e "console.log(require('$ROOT/package.json').version)")
