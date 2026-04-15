@@ -174,8 +174,11 @@ export async function checkForUpdate(): Promise<UpdateResult> {
     // opencode caches npm plugins at: $XDG_CACHE_HOME/opencode/packages/<pkg>/
     // Deleting node_modules + package-lock.json forces Arborist.loadVirtual()
     // to fail, which triggers a fresh reify() with the latest version.
-    const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
-    const cacheBase = `${process.env.XDG_CACHE_HOME || home + "/.cache"}/opencode/packages/opencode-dir`
+    const home = require("os").homedir()
+    const cacheBase = resolve(
+      process.env.XDG_CACHE_HOME || resolve(home, ".cache"),
+      "opencode", "packages", "opencode-dir",
+    )
     const { rmSync: rm } = await import("fs")
     try { rm(resolve(cacheBase, "node_modules"), { recursive: true, force: true }) } catch {}
     try { rm(resolve(cacheBase, "package-lock.json"), { force: true }) } catch {}
@@ -216,32 +219,36 @@ export function getInitialCommit(dir: string): string | null {
 
 /**
  * Resolves the opencode database path, mirroring the logic in
- * `packages/opencode/src/storage/db.ts → Database.getChannelPath()`.
+ * `packages/opencode/src/storage/db.ts → Database.getChannelPath()` and
+ * `packages/opencode/src/global/index.ts → Global.Path.data`.
  *
- * Resolution order:
- * 1. `OPENCODE_DB` env — absolute path or name relative to data dir
- * 2. Channel-based: `opencode.db` for latest/beta/prod, else `opencode-{channel}.db`
- * 3. Fallback: `opencode.db`
+ * opencode uses `xdg-basedir` which resolves to:
+ *   XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share')
+ * on all platforms (including Windows).
  */
 export function getDbPath(): string {
-  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
-  const dataDir = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`
+  const { isAbsolute } = require("path")
+  const home = require("os").homedir()
+  const dataDir = resolve(
+    process.env.XDG_DATA_HOME || resolve(home, ".local", "share"),
+    "opencode",
+  )
 
   // OPENCODE_DB override (mirrors Flag.OPENCODE_DB)
   const dbOverride = process.env.OPENCODE_DB
   if (dbOverride) {
     if (dbOverride === ":memory:") return dbOverride
-    if (dbOverride.startsWith("/")) return dbOverride
-    return `${dataDir}/${dbOverride}`
+    if (isAbsolute(dbOverride)) return dbOverride
+    return resolve(dataDir, dbOverride)
   }
 
   // Channel-based naming
   const channel = process.env.OPENCODE_CHANNEL ?? "latest"
   if (["latest", "beta", "prod"].includes(channel) || process.env.OPENCODE_DISABLE_CHANNEL_DB) {
-    return `${dataDir}/opencode.db`
+    return resolve(dataDir, "opencode.db")
   }
   const safe = channel.replace(/[^a-zA-Z0-9._-]/g, "-")
-  return `${dataDir}/opencode-${safe}.db`
+  return resolve(dataDir, `opencode-${safe}.db`)
 }
 
 /** Returns true if the database has the tables the plugin needs. */
