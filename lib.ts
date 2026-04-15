@@ -174,7 +174,8 @@ export async function checkForUpdate(): Promise<UpdateResult> {
     // opencode caches npm plugins at: $XDG_CACHE_HOME/opencode/packages/<pkg>/
     // Deleting node_modules + package-lock.json forces Arborist.loadVirtual()
     // to fail, which triggers a fresh reify() with the latest version.
-    const cacheBase = `${process.env.XDG_CACHE_HOME || process.env.HOME + "/.cache"}/opencode/packages/opencode-dir`
+    const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+    const cacheBase = `${process.env.XDG_CACHE_HOME || home + "/.cache"}/opencode/packages/opencode-dir`
     const { rmSync: rm } = await import("fs")
     try { rm(resolve(cacheBase, "node_modules"), { recursive: true, force: true }) } catch {}
     try { rm(resolve(cacheBase, "package-lock.json"), { force: true }) } catch {}
@@ -223,7 +224,8 @@ export function getInitialCommit(dir: string): string | null {
  * 3. Fallback: `opencode.db`
  */
 export function getDbPath(): string {
-  const dataDir = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
+  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const dataDir = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`
 
   // OPENCODE_DB override (mirrors Flag.OPENCODE_DB)
   const dbOverride = process.env.OPENCODE_DB
@@ -389,7 +391,8 @@ export function rewriteMessages(
  * falls back to "global" for non-git directories.
  */
 export function resolveTarget(targetPath: string): { dir: string; projectId: string } {
-  const dir = resolve(targetPath.replace(/^~/, process.env.HOME || "/root"))
+  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const dir = resolve(targetPath.replace(/^~/, home))
 
   if (!existsSync(dir)) {
     throw new Error(`Directory does not exist: ${dir}`)

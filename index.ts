@@ -14,7 +14,8 @@ import {
   checkForUpdate,
 } from "./lib"
 
-const STATE_DIR = `${process.env.XDG_DATA_HOME || process.env.HOME + "/.local/share"}/opencode`
+const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+const STATE_DIR = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`
 const LOG_FILE = `${STATE_DIR}/opencode-dir-debug.log`
 const OVERRIDES_FILE = `${STATE_DIR}/opencode-dir-overrides.json`
 const DEBUG = !!process.env.OPENCODE_DIR_DEBUG
