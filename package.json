@@ -1,6 +1,6 @@
 {
   "name": "opencode-dir",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Directory operations for opencode sessions",
   "type": "module",
   "license": "MIT",
