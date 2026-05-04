@@ -95,15 +95,37 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         return
       }
 
-      if (input.command === "add-dir") {
+if (input.command === "add-dir") {
         let exec: ExecResult
         try {
           exec = execAddDir(input.sessionID, targetPath)
         } catch (e: unknown) {
-          const err = e instanceof Error ? e : new Error(String(e))
+          const err = e instanceof Error ? e : new Error(e.message)
           reportError(err)
           exec = { result: `Error: ${err.message}` }
         }
+
+        if (!exec.result.startsWith("Error") && !exec.result.includes("already accessible")) {
+          await client.tui.showToast({
+            body: {
+              title: "Directory added",
+              message: `Tools can now access files under the added directory.`,
+              variant: "info",
+              duration: 5000,
+            },
+          }).catch(() => {})
+        } else if (exec.result.includes("already")) {
+          await client.tui.showToast({
+            body: {
+              title: "Already accessible",
+              message: exec.result,
+              variant: "info",
+              duration: 5000,
+            },
+          }).catch(() => {})
+        }
+        return
+      }
 
         output.parts.splice(0)
         output.parts.push({ type: "text", text: exec.result })
@@ -121,17 +143,14 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         return
       }
 
-      let exec: ExecResult
+let exec: ExecResult
       try {
         exec = execMove(input.sessionID, targetPath, input.command === "mv")
       } catch (e: unknown) {
-        const err = e instanceof Error ? e : new Error(String(e))
+        const err = e instanceof Error ? e : new Error(e.message)
         reportError(err)
         exec = { result: `Error: ${err.message}` }
       }
-
-      output.parts.splice(0)
-      output.parts.push({ type: "text", text: exec.result })
 
       if (exec.oldDir && exec.newDir) {
         log("storing override", { sessionID: input.sessionID, oldDir: exec.oldDir, newDir: exec.newDir })
@@ -140,11 +159,23 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
         await client.tui.showToast({
           body: {
-            title: "Session directory changed",
-            message: `Now operating in ${exec.newDir}.\nThis session will list under the new project on next launch.`,
+            title: "Session moved",
+            message: `Restart in ${exec.newDir} to see session in new project.`,
             variant: "info",
             duration: 8000,
           },
+        }).catch(() => {})
+      } else if (exec.result.includes("Already in")) {
+        await client.tui.showToast({
+          body: {
+            title: "No change needed",
+            message: exec.result,
+            variant: "info",
+            duration: 5000,
+          },
+        }).catch(() => {})
+      }
+    },
         }).catch(() => {})
       }
     },
