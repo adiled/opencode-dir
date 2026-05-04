@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite"
 import { resolve } from "path"
-import { existsSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs"
 import { execSync } from "child_process"
 
 // ---------------------------------------------------------------------------
@@ -200,44 +200,17 @@ export async function checkForUpdate(): Promise<UpdateResult> {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves the initial commit hash for a git repository, matching
- * opencode's `Project.fromDirectory` logic:
- * 1. Check `.git/opencode` cache file first (same as opencode)
- * 2. Fall back to `git rev-list --max-parents=0 --all`, sorted, first.
+ * Resolves the initial commit for a git repository using git.
+ * No cache handling - the cache is cleared after mv/cd.
  */
 export function getInitialCommit(dir: string): string | null {
-  const { join } = require("path")
-  const gitDir = join(dir, ".git")
-
-  if (!existsSync(gitDir)) {
-    return null
-  }
-
-  // Step 1: Check opencode's cache file first (same as opencode does)
-  try {
-    const cacheFile = join(gitDir, "opencode")
-    if (existsSync(cacheFile)) {
-      const cached = readFileSync(cacheFile, "utf-8").trim()
-      if (cached) return cached
-    }
-  } catch {}
-
-  // Step 2: Fall back to git rev-list and CACHE the result (so opencode matches)
   try {
     const output = execSync("git rev-list --max-parents=0 --all", {
       cwd: dir,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "ignore"],
     })
-    const commits = output.split("\n").filter(Boolean).map((x) => x.trim()).sort()
-    const id = commits[0] ?? null
-    if (id) {
-      try {
-        const cacheFile = join(gitDir, "opencode")
-        writeFileSync(cacheFile, id)
-      } catch {}
-    }
-    return id
+    return output.split("\n").filter(Boolean).map((x) => x.trim()).sort()[0] ?? null
   } catch {
     return null
   }
@@ -545,10 +518,11 @@ export function execMove(
       return { result: msg }
     }
 
-    const currentDir = getCurrentDirectory(db, sessionId) ?? session.directory
-    if (dir === currentDir) {
+    if (dir === session.directory) {
       return { result: `Already in ${dir} — no change needed.` }
     }
+
+    const currentDir = session.directory
 
     ensureProject(db, projectId, dir)
     const changes = updateSession(db, sessionId, dir, projectId)
@@ -558,11 +532,13 @@ export function execMove(
       return { result: msg }
     }
 
-    // Write opencode's cache so it uses the same projectId
+    // Delete opencode's cache so it recomputes on next open
     try {
       const { join } = require("path")
       const cacheFile = join(dir, ".git", "opencode")
-      writeFileSync(cacheFile, projectId)
+      if (existsSync(cacheFile)) {
+        unlinkSync(cacheFile)
+      }
     } catch {}
 
     const lines = rewrite
