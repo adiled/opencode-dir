@@ -202,16 +202,42 @@ export async function checkForUpdate(): Promise<UpdateResult> {
 /**
  * Resolves the initial commit hash for a git repository, matching
  * opencode's `Project.fromDirectory` logic:
- * `git rev-list --max-parents=0 --all`, split/filter/sort, take first.
+ * 1. Check `.git/opencode` cache file first (same as opencode)
+ * 2. Fall back to `git rev-list --max-parents=0 --all`, sorted, first.
  */
 export function getInitialCommit(dir: string): string | null {
+  const { join } = require("path")
+  const gitDir = join(dir, ".git")
+
+  if (!existsSync(gitDir)) {
+    return null
+  }
+
+  // Step 1: Check opencode's cache file first (same as opencode does)
+  try {
+    const cacheFile = join(gitDir, "opencode")
+    if (existsSync(cacheFile)) {
+      const cached = readFileSync(cacheFile, "utf-8").trim()
+      if (cached) return cached
+    }
+  } catch {}
+
+  // Step 2: Fall back to git rev-list and CACHE the result (so opencode matches)
   try {
     const output = execSync("git rev-list --max-parents=0 --all", {
       cwd: dir,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "ignore"],
     })
-    return output.split("\n").filter(Boolean).map((x) => x.trim()).sort()[0] ?? null
+    const commits = output.split("\n").filter(Boolean).map((x) => x.trim()).sort()
+    const id = commits[0] ?? null
+    if (id) {
+      try {
+        const cacheFile = join(gitDir, "opencode")
+        writeFileSync(cacheFile, id)
+      } catch {}
+    }
+    return id
   } catch {
     return null
   }
@@ -531,6 +557,13 @@ export function execMove(
       reportError(new Error(msg))
       return { result: msg }
     }
+
+    // Write opencode's cache so it uses the same projectId
+    try {
+      const { join } = require("path")
+      const cacheFile = join(dir, ".git", "opencode")
+      writeFileSync(cacheFile, projectId)
+    } catch {}
 
     const lines = rewrite
       ? (() => {
