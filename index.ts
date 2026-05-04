@@ -159,8 +159,8 @@ let exec: ExecResult
 
         await client.tui.showToast({
           body: {
-            title: "Session moved",
-            message: `Restart in ${exec.newDir} to see session in new project.`,
+            title: "Session directory changed",
+            message: `Now operating in ${exec.newDir}.\nThis session will list under the new project on next launch.`,
             variant: "info",
             duration: 8000,
           },
