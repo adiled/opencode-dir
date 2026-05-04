@@ -90,8 +90,14 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
       const targetPath = input.arguments.trim()
       if (!targetPath) {
-        output.parts.splice(0)
-        output.parts.push({ type: "text", text: `Usage: /${input.command} <path>` })
+        await client.tui.showToast({
+          body: {
+            title: "Usage",
+            message: `/${input.command} <path>`,
+            variant: "info",
+            duration: 5000,
+          },
+        }).catch(() => {})
         return
       }
 
@@ -124,23 +130,22 @@ if (input.command === "add-dir") {
             },
           }).catch(() => {})
         }
+return
+      }
+
+      if (exec.result.startsWith("Error")) {
+        await client.tui.showToast({
+          body: {
+            title: "Error",
+            message: exec.result,
+            variant: "error",
+            duration: 8000,
+          },
+        }).catch(() => {})
         return
       }
 
-        output.parts.splice(0)
-        output.parts.push({ type: "text", text: exec.result })
-
-        if (!exec.result.startsWith("Error") && !exec.result.includes("already accessible")) {
-          await client.tui.showToast({
-            body: {
-              title: "Directory added",
-              message: `Tools can now access files under the added directory.`,
-              variant: "info",
-              duration: 5000,
-            },
-          }).catch(() => {})
-        }
-        return
+      if (exec.oldDir && exec.newDir) {
       }
 
 let exec: ExecResult
