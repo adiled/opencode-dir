@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-# Usage: ./scripts/version.sh "release message" [patch|minor|major]
-# Bumps version in package.json, commits, tags, pushes.
+# Usage: ./scripts/release.sh "release message" [patch|minor|major]
+# Gates on typecheck + tests, then bumps version, commits, tags, pushes.
 
 MSG="${1:-}"
 BUMP="${2:-patch}"
@@ -12,6 +12,13 @@ if [ -z "$MSG" ]; then
   echo "Usage: $0 \"release message\" [patch|minor|major]"
   exit 1
 fi
+
+# Pre-release gates — run BEFORE any version bump
+echo "Running typecheck..."
+bunx tsc --noEmit || { echo "❌ Typecheck failed — aborting release"; exit 1; }
+echo "Running tests..."
+bun test lib.test.ts || { echo "❌ Tests failed — aborting release"; exit 1; }
+echo "✅ All checks passed"
 
 # Read current version
 CURRENT=$(node -e "console.log(require('$ROOT/package.json').version)")
@@ -37,13 +44,6 @@ j.version = '$NEXT';
 fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
 console.log('  updated ' + p);
 "
-
-# Pre-release gates
-echo "Running typecheck..."
-bunx tsc --noEmit || { echo "❌ Typecheck failed — aborting release"; exit 1; }
-echo "Running tests..."
-bun test lib.test.ts || { echo "❌ Tests failed — aborting release"; exit 1; }
-echo "✅ All checks passed"
 
 git add -A
 git commit -m "v$NEXT: $MSG"
