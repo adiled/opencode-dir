@@ -100,6 +100,8 @@ export function persistOverrides(path: string, map: Map<string, Override>) {
 
 export const MIN_OPENCODE_VERSION = "1.4.3"
 
+declare const OPENCODE_VERSION: string | undefined
+
 /**
  * Reads the opencode version from the `OPENCODE_VERSION` global
  * (injected at build time by opencode).

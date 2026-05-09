@@ -1,4 +1,4 @@
-import { type Plugin, type PluginModule } from "@opencode-ai/plugin"
+import { type Plugin } from "@opencode-ai/plugin"
 import { mkdirSync, appendFileSync } from "fs"
 import {
   type Override,
@@ -237,4 +237,4 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 export default {
   id: "opencode-dir",
   server: OpencodeDir,
-} satisfies PluginModule
+}

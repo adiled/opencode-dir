@@ -33,6 +33,13 @@ fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
 console.log('  updated ' + p);
 "
 
+# Pre-release gates
+echo "Running typecheck..."
+bunx tsc --noEmit || { echo "❌ Typecheck failed — aborting release"; exit 1; }
+echo "Running tests..."
+bun test lib.test.ts || { echo "❌ Tests failed — aborting release"; exit 1; }
+echo "✅ All checks passed"
+
 git add -A
 git commit -m "v$NEXT"
 
