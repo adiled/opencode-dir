@@ -90,8 +90,14 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
       const targetPath = input.arguments.trim()
       if (!targetPath) {
-        output.parts.splice(0)
-        output.parts.push({ type: "text", text: `Usage: /${input.command} <path>` })
+        await client.tui.showToast({
+          body: {
+            title: "Usage",
+            message: `/${input.command} <path>`,
+            variant: "info",
+            duration: 5000,
+          },
+        }).catch(() => {})
         return
       }
 
@@ -105,10 +111,25 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           exec = { result: `Error: ${err.message}` }
         }
 
-        output.parts.splice(0)
-        output.parts.push({ type: "text", text: exec.result })
-
-        if (!exec.result.startsWith("Error") && !exec.result.includes("already accessible")) {
+        if (exec.result.startsWith("Error")) {
+          await client.tui.showToast({
+            body: {
+              title: "Error",
+              message: exec.result,
+              variant: "error",
+              duration: 8000,
+            },
+          }).catch(() => {})
+        } else if (exec.result.includes("already accessible")) {
+          await client.tui.showToast({
+            body: {
+              title: "Already accessible",
+              message: exec.result,
+              variant: "info",
+              duration: 5000,
+            },
+          }).catch(() => {})
+        } else {
           await client.tui.showToast({
             body: {
               title: "Directory added",
@@ -130,8 +151,17 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         exec = { result: `Error: ${err.message}` }
       }
 
-      output.parts.splice(0)
-      output.parts.push({ type: "text", text: exec.result })
+      if (exec.result.startsWith("Error")) {
+        await client.tui.showToast({
+          body: {
+            title: "Error",
+            message: exec.result,
+            variant: "error",
+            duration: 8000,
+          },
+        }).catch(() => {})
+        return
+      }
 
       if (exec.oldDir && exec.newDir) {
         log("storing override", { sessionID: input.sessionID, oldDir: exec.oldDir, newDir: exec.newDir })
@@ -144,6 +174,15 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             message: `Now operating in ${exec.newDir}.\nThis session will list under the new project on next launch.`,
             variant: "info",
             duration: 8000,
+          },
+        }).catch(() => {})
+      } else if (exec.result.includes("Already in")) {
+        await client.tui.showToast({
+          body: {
+            title: "No change needed",
+            message: exec.result,
+            variant: "info",
+            duration: 5000,
           },
         }).catch(() => {})
       }
