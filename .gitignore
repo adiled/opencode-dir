@@ -1,3 +1,5 @@
 node_modules
 e2e-patch.*
 .githooks
+AGENTS.md
+CLAUDE.md
