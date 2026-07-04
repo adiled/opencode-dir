@@ -13,7 +13,7 @@ Add to `opencode.json`:
 }
 ```
 
-Restart opencode — the plugin auto-installs commands on first load.
+Restart opencode. The plugin auto-installs commands on first load.
 
 ## Commands
 
@@ -31,7 +31,7 @@ Grant tool access to an additional directory without changing the session's work
 
 ## After moving
 
-The session is fully operational in the new directory — system prompt, tools, and permissions are all updated immediately. When you next open opencode from the target directory, the session will appear under that project's session list.
+The session is fully operational in the new directory. System prompt, tools, and permissions are all updated immediately. When you next open opencode from the target directory, the session will appear under that project's session list.
 
 ## License
 
