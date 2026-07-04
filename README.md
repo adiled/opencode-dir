@@ -1,27 +1,19 @@
 # opencode-dir
 
-Directory operations for [opencode](https://opencode.ai) sessions — change directory, move sessions, and grant access to additional directories at runtime.
+Directory operations for [opencode](https://opencode.ai) sessions. Change directory, move sessions, and grant access to additional directories at runtime.
 
 When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd`, `/mv`, and `/add-dir` commands to manage directory context without restarting.
 
 ## Setup
 
-Run the install script:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/adiled/opencode-dir/main/install | bash
-```
-
-Or install manually:
-
-1. Add to `opencode.json`:
+Add to `opencode.json`:
 ```json
 {
   "plugin": ["opencode-dir"]
 }
 ```
 
-2. Restart opencode — the plugin auto-installs commands on first load.
+Restart opencode — the plugin auto-installs commands on first load.
 
 ## Commands
 
