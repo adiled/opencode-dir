@@ -39,7 +39,7 @@ function getVersion(): string {
   return _version!
 }
 
-/** Reports an error to Sentry. Silent on failure — must never break the plugin. */
+/** Reports an error to Sentry. Silent on failure - must never break the plugin. */
 export async function reportError(err: Error) {
   try {
     const url = new URL(SENTRY_DSN)
@@ -79,7 +79,7 @@ export async function reportError(err: Error) {
       body: `${header}\n${item}\n${payload}`,
     })
   } catch {
-    // Silent — telemetry must never break the plugin
+    // Silent - telemetry must never break the plugin
   }
 }
 
@@ -161,7 +161,7 @@ export interface UpdateResult {
 
 /**
  * Check npm registry for a newer version and purge opencode's plugin cache
- * so it re-installs on next launch. Does NOT install — just invalidates.
+ * so it re-installs on next launch. Does NOT install - just invalidates.
  * Returns the result so the caller can toast the user to restart.
  */
 export async function checkForUpdate(): Promise<UpdateResult> {
@@ -202,7 +202,7 @@ export async function checkForUpdate(): Promise<UpdateResult> {
     return { updated: true, from: currentVersion, to: latest }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    // Don't report aborts or network errors — expected in offline environments
+    // Don't report aborts or network errors - expected in offline environments
     if (!msg.includes("abort")) {
       reportError(new Error(`Update check failed: ${msg}`))
     }
@@ -315,7 +315,7 @@ export function hasSchema(db: Database): boolean {
 /**
  * Creates the minimal schema required by the plugin in a fresh database.
  *
- * Only used in tests — production relies on opencode's drizzle migrations.
+ * Only used in tests - production relies on opencode's drizzle migrations.
  */
 export function createSchema(db: Database) {
   db.exec(`
@@ -695,10 +695,83 @@ export function execRemoveDir(
 }
 
 /**
+ * Removes tool access to a previously-granted external directory for a session.
+ *
+ * The session's working directory is left untouched; only the permission
+ * entries for the given path are cleared.
+ *
+ * @param sessionId - Session ID to revoke access from.
+ * @param targetPath - Path to the directory being removed.
+ * @param db - Optional database instance (uses default path if omitted).
+ * @returns Result with a user-facing message.
+ */
+export function execRemoveDir(
+  sessionId: string,
+  targetPath: string,
+  db?: Database,
+): ExecResult {
+  checkGuard()
+  let dir: string
+  try {
+    dir = resolveTarget(targetPath).dir
+  } catch (e: unknown) {
+    const err = e instanceof Error ? e : new Error(String(e))
+    reportError(err)
+    return { result: `Error: ${err.message}` }
+  }
+
+  const owned = !db
+  try {
+    if (!db) {
+      db = new Database(getDbPath())
+    }
+
+    if (!hasSchema(db)) {
+      const msg =
+        "Error: opencode database does not contain expected tables. " +
+        "The plugin may be opening a stale or wrong database file " +
+        `(${getDbPath()}). Ensure opencode has been started at least once.`
+      reportError(new Error(msg))
+      return { result: msg }
+    }
+
+    const session = getSessionInfo(db, sessionId)
+    if (!session) {
+      const msg = `Error: session ${sessionId} not found in database.`
+      reportError(new Error(msg))
+      return { result: msg }
+    }
+
+    const rowsRemoved = removeDirPermission(db, sessionId, dir)
+    if (rowsRemoved === 0) {
+      return { result: `Directory ${dir} is not currently granted in this session.` }
+    }
+
+    return {
+      result: [
+        `Removed directory: ${dir}`,
+        `Tools can no longer access files under ${dir} for this session.`,
+      ].join("\n"),
+    }
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e))
+    reportError(err)
+    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
+  } finally {
+    if (owned && db) {
+      db.close()
+    }
+  }
+}
+
+/**
  * Grants tool access to an additional directory without changing the
  * session's working directory, project, or message history.
  *
+ * @param sessionId - Session ID to grant access to.
+ * @param targetPath - Path to the directory to add.
  * @param db - Optional database instance (uses default path if omitted).
+ * @returns Number of rows affected (≥ 1 on success, 0 if session not found, -1 for duplicate).
  */
 export function execAddDir(
   sessionId: string,

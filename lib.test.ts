@@ -16,8 +16,10 @@ import {
   resolveTarget,
   execMove,
   execAddDir,
-  getSessionPermissions,
+  execRemoveDir,
   appendDirPermission,
+  removeDirPermission,
+  getSessionPermissions,
   loadOverrides,
   persistOverrides,
   getDbPath,
@@ -628,5 +630,153 @@ describe("meetsMinVersion", () => {
   })
   it("returns true when minimum is non-semver", () => {
     expect(meetsMinVersion("1.0.0", "local")).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// removeDirPermission (unit)
+// ---------------------------------------------------------------------------
+
+describe("removeDirPermission", () => {
+  it("removes a permission rule by pattern", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    appendDirPermission(db, "ses_1", "/extra")
+    const before = getSessionPermissions(db, "ses_1")
+    expect(before).toHaveLength(1)
+
+    const removed = removeDirPermission(db, "ses_1", "/extra")
+    expect(removed).toBe(1)
+
+    const after = getSessionPermissions(db, "ses_1")
+    expect(after).toHaveLength(0)
+    db.close()
+  })
+
+  it("returns 0 when pattern does not match any permission", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+    appendDirPermission(db, "ses_1", "/extra")
+
+    const removed = removeDirPermission(db, "ses_1", "/nonexistent")
+    expect(removed).toBe(0)
+
+    const perms = getSessionPermissions(db, "ses_1")
+    expect(perms).toHaveLength(1)
+    db.close()
+  })
+
+  it("returns 0 for session with no matching permissions", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const removed = removeDirPermission(db, "ses_1", "/work")
+    expect(removed).toBe(0)
+    db.close()
+  })
+
+  it("removes only the matching rule, leaves others intact", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+    updateSession(db, "ses_1", "/a", "proj_a")
+    appendDirPermission(db, "ses_1", "/b")
+    appendDirPermission(db, "ses_1", "/c")
+
+    const removed = removeDirPermission(db, "ses_1", "/b")
+    expect(removed).toBe(1)
+
+    const perms = getSessionPermissions(db, "ses_1")
+    expect(perms).toHaveLength(2)
+    expect(perms.map((p: any) => p.pattern)).toEqual(["/a/*", "/c/*"])
+    db.close()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// execRemoveDir (integration)
+// ---------------------------------------------------------------------------
+
+describe("execRemoveDir", () => {
+  let repo: string
+  let db: Database
+
+  beforeEach(() => {
+    repo = createGitRepo()
+    db = createTestDb()
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  it("removes tool access to a previously-added directory", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    execAddDir("ses_1", repo, db)
+    const permsBefore = getSessionPermissions(db, "ses_1")
+    expect(permsBefore).toHaveLength(1)
+
+    const result = execRemoveDir("ses_1", repo, db)
+    expect(result.result).toContain("Removed directory")
+    expect(result.result).toContain(repo)
+
+    const permsAfter = getSessionPermissions(db, "ses_1")
+    expect(permsAfter).toHaveLength(0)
+  })
+
+  it("does not change session directory or project", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+    execAddDir("ses_1", repo, db)
+    execRemoveDir("ses_1", repo, db)
+
+    const session = getSessionInfo(db, "ses_1")!
+    expect(session.directory).toBe("/work")
+    expect(session.projectId).toBe("proj_1")
+  })
+
+  it("returns no-op message when directory was not granted", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const result = execRemoveDir("ses_1", repo, db)
+    expect(result.result).toContain("is not currently granted")
+  })
+
+  it("returns error for nonexistent session", () => {
+    const result = execRemoveDir("ses_nope", repo, db)
+    expect(result.result).toContain("not found")
+  })
+
+  it("returns error for nonexistent directory path", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const result = execRemoveDir("ses_1", "/no/such/path/xyz", db)
+    expect(result.result).toContain("Error")
+  })
+
+  it("removes only the matching permission, leaves others intact", () => {
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const repo2 = createGitRepo()
+    execAddDir("ses_1", repo, db)
+    execAddDir("ses_1", repo2, db)
+
+    const permsBefore = getSessionPermissions(db, "ses_1")
+    expect(permsBefore).toHaveLength(2)
+
+    execRemoveDir("ses_1", repo, db)
+
+    const permsAfter = getSessionPermissions(db, "ses_1")
+    expect(permsAfter).toHaveLength(1)
+    expect(permsAfter[0].pattern).toBe(repo2 + "/*")
+    rmSync(repo2, { recursive: true, force: true })
+  })
+
+  it("returns error when database has no schema", () => {
+    const emptyDb = new Database(":memory:")
+    const result = execRemoveDir("ses_1", repo, emptyDb)
+    expect(result.result).toContain("does not contain expected tables")
+    emptyDb.close()
   })
 })
