@@ -193,7 +193,7 @@ export async function checkForUpdate(): Promise<UpdateResult> {
     const home = homedir()
     const cacheBase = resolve(
       process.env.XDG_CACHE_HOME || resolve(home, ".cache"),
-      "opencode", "packages", "opencode-dir",
+      "opencode", "packages", "opencode-dir@latest",
     )
     const { rmSync: rm } = await import("fs")
     try { rm(resolve(cacheBase, "node_modules"), { recursive: true, force: true }) } catch {}
@@ -510,6 +510,25 @@ export function getSessionPermissions(db: Database, sessionId: string): unknown[
   }
 }
 
+/**
+ * Removes (un-grants) an external_directory permission for a session.
+ * Returns the number of rows removed (0 = not found), -1 = not found in DB.
+ */
+export function removeDirPermission(db: Database, sessionId: string, dir: string): number {
+  const existing = getSessionPermissions(db, sessionId)
+  const pattern = dir + "/*"
+  const filtered = existing.filter(
+    (r: any) => !(r.permission === "external_directory" && r.pattern === pattern),
+  )
+  const removed = existing.length - filtered.length
+  if (removed === 0) return 0
+  const status = db.run(
+    `UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`,
+    [JSON.stringify(filtered), Date.now(), sessionId],
+  ).changes
+  return status > 0 ? removed : 0
+}
+
 /** Appends an external_directory permission without touching directory or project. */
 export function appendDirPermission(db: Database, sessionId: string, dir: string): number {
   const existing = getSessionPermissions(db, sessionId)
@@ -573,7 +592,7 @@ export function execMove(
 
     const currentDir = getCurrentDirectory(db, sessionId) ?? session.directory
     if (dir === currentDir) {
-      return { result: `Already in ${dir} — no change needed.` }
+      return { result: `Already in ${dir} - no change needed.` }
     }
 
     ensureProject(db, projectId, dir)
@@ -607,10 +626,72 @@ export function execMove(
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e))
     reportError(err)
-    return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }
+    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
   } finally {
     if (owned && db) db.close()
   }
+}
+
+/**
+ * Removes tool access to a previously-granted external directory for a session.
+ *
+ * @param db - Optional database instance (uses default path if omitted).
+ */
+export function execRemoveDir(
+  sessionId: string,
+  targetPath: string,
+  db?: Database,
+): ExecResult {
+  checkGuard()
+  let dir: string
+  try {
+    dir = resolveTarget(targetPath).dir
+   } catch (e: unknown) {
+    const err = e instanceof Error ? e : new Error(String(e))
+    reportError(err)
+    return { result: `Error: ${err.message}` }
+   }
+
+  const owned = !db
+  try {
+    if (!db) {
+      db = new Database(getDbPath())
+     }
+
+    if (!hasSchema(db)) {
+      const msg =
+         "Error: opencode database does not contain expected tables. " +
+         "The plugin may be opening a stale or wrong database file " +
+         `(${getDbPath()}). Ensure opencode has been started at least once.`
+      reportError(new Error(msg))
+      return { result: msg }
+     }
+
+    const session = getSessionInfo(db, sessionId)
+    if (!session) {
+      const msg = `Error: session ${sessionId} not found in database.`
+      reportError(new Error(msg))
+      return { result: msg }
+     }
+
+    const status = removeDirPermission(db, sessionId, dir)
+    if (status === 0) {
+      return { result: `Directory ${dir} is not currently granted in this session.` }
+     }
+
+    return {
+      result: [
+         `Removed directory: ${dir}`,
+         `Tools can no longer access files under ${dir} for this session.`,
+       ].join("\n"),
+      }
+    } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e))
+    reportError(err)
+    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
+    } finally {
+    if (owned && db) db.close()
+    }
 }
 
 /**
@@ -675,7 +756,7 @@ export function execAddDir(
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e))
     reportError(err)
-    return { result: `Error: opencode-dir database operation failed — the plugin may need updating.` }
+    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
   } finally {
     if (owned && db) db.close()
   }
