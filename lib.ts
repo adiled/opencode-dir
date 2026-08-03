@@ -1,7 +1,21 @@
 import { Database } from "bun:sqlite"
-import { resolve } from "path"
+import { resolve, join, isAbsolute } from "path"
 import { existsSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
+import { homedir } from "os"
+
+// Guard: only allow execMove / execAddDir when called from within opencode's plugin system.
+let _pluginInitialized = false
+/** Marks this module as being used by opencode's plugin loader. */
+export function initPluginGuard() { _pluginInitialized = true }
+function checkGuard() {
+  if (!_pluginInitialized && typeof process !== "undefined" && !process.env.OPENCODE_DIR_TEST) {
+    throw new Error(
+      "opencode-dir functions must be called from within the opencode plugin system. " +
+      "Direct imports from test harnesses or standalone scripts are not supported.",
+    )
+  }
+}
 
 // ---------------------------------------------------------------------------
 
@@ -176,7 +190,7 @@ export async function checkForUpdate(): Promise<UpdateResult> {
     // opencode caches npm plugins at: $XDG_CACHE_HOME/opencode/packages/<pkg>/
     // Deleting node_modules + package-lock.json forces Arborist.loadVirtual()
     // to fail, which triggers a fresh reify() with the latest version.
-    const home = require("os").homedir()
+    const home = homedir()
     const cacheBase = resolve(
       process.env.XDG_CACHE_HOME || resolve(home, ".cache"),
       "opencode", "packages", "opencode-dir",
@@ -208,7 +222,6 @@ export async function checkForUpdate(): Promise<UpdateResult> {
  * 2. Fall back to `git rev-list --max-parents=0 --all`, sorted, first.
  */
 export function getInitialCommit(dir: string): string | null {
-  const { join } = require("path")
   const gitDir = join(dir, ".git")
 
   if (!existsSync(gitDir)) {
@@ -255,8 +268,6 @@ export function getInitialCommit(dir: string): string | null {
  * on all platforms (including Windows).
  */
 export function getDbPath(): string {
-  const { isAbsolute } = require("path")
-  const home = require("os").homedir()
   const dataDir = resolve(
     process.env.XDG_DATA_HOME || resolve(home, ".local", "share"),
     "opencode",
@@ -279,8 +290,19 @@ export function getDbPath(): string {
   return resolve(dataDir, `opencode-${safe}.db`)
 }
 
+// Validate that a Database-like object has a working query/run method
+function assertValidDb(db: Database, fn: string): void {
+  if (!db || typeof db.query !== "function" || typeof db.run !== "function") {
+    throw new Error(
+      `opencode-dir: invalid database instance passed to ${fn}. ` +
+      "The plugin must be called from within the opencode plugin system.",
+    )
+  }
+}
+
 /** Returns true if the database has the tables the plugin needs. */
 export function hasSchema(db: Database): boolean {
+  assertValidDb(db, "hasSchema")
   const row = db
     .query("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
     .get() as { name: string } | null
@@ -426,7 +448,7 @@ export function rewriteMessages(
  * falls back to "global" for non-git directories.
  */
 export function resolveTarget(targetPath: string): { dir: string; projectId: string } {
-  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const home = process.env.HOME || process.env.USERPROFILE || homedir()
   const dir = resolve(targetPath.replace(/^~/, home))
 
   if (!existsSync(dir)) {
@@ -524,6 +546,7 @@ export function execMove(
   rewrite: boolean,
   db?: Database,
 ): ExecResult {
+  checkGuard()
   const owned = !db
   try {
     const { dir, projectId } = resolveTarget(targetPath)
@@ -562,7 +585,6 @@ export function execMove(
 
     // Write opencode's cache so it uses the same projectId
     try {
-      const { join } = require("path")
       const cacheFile = join(dir, ".git", "opencode")
       writeFileSync(cacheFile, projectId)
     } catch {}
@@ -601,6 +623,7 @@ export function execAddDir(
   targetPath: string,
   db?: Database,
 ): ExecResult {
+  checkGuard()
   let dir: string
   try {
     dir = resolveTarget(targetPath).dir

@@ -1,5 +1,6 @@
 import { type Plugin } from "@opencode-ai/plugin"
 import { mkdirSync, appendFileSync } from "fs"
+import { homedir } from "os"
 import {
   type Override,
   type ExecResult,
@@ -12,9 +13,10 @@ import {
   meetsMinVersion,
   MIN_OPENCODE_VERSION,
   checkForUpdate,
+  initPluginGuard,
 } from "./lib"
 
-const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+const home = process.env.HOME || process.env.USERPROFILE || homedir()
 const STATE_DIR = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`
 const LOG_FILE = `${STATE_DIR}/opencode-dir-debug.log`
 const OVERRIDES_FILE = `${STATE_DIR}/opencode-dir-overrides.json`
@@ -36,6 +38,7 @@ const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE)
 // /add-dir — grant tool access to an additional directory
 
 export const OpencodeDir: Plugin = async ({ client }) => {
+  initPluginGuard()
   mkdirSync(STATE_DIR, { recursive: true })
   log("plugin loaded", { overridesRecovered: dirOverrides.size })
 
