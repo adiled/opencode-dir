@@ -5,6 +5,7 @@ import { execSync } from "child_process"
 import { join } from "path"
 import { tmpdir } from "os"
 import {
+  initPluginGuard,
   createSchema,
   ensureProject,
   updateSession,
@@ -23,6 +24,9 @@ import {
   hasSchema,
   meetsMinVersion,
 } from "./lib"
+
+// Allow test file to bypass the plugin-system guard
+initPluginGuard()
 
 // ---------------------------------------------------------------------------
 // Helpers

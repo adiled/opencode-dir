@@ -268,8 +268,9 @@ export function getInitialCommit(dir: string): string | null {
  * on all platforms (including Windows).
  */
 export function getDbPath(): string {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || homedir()
   const dataDir = resolve(
-    process.env.XDG_DATA_HOME || resolve(home, ".local", "share"),
+    process.env.XDG_DATA_HOME || resolve(homeDir, ".local", "share"),
     "opencode",
   )
 
