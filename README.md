@@ -2,7 +2,7 @@
 
 Directory operations for [opencode](https://opencode.ai) sessions. Change directory, move sessions, and grant access to additional directories at runtime.
 
-When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd`, `/mv`, and `/add-dir` commands to manage directory context without restarting.
+When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd`, `/mv`, `/add-dir`, and `/remove-dir` commands to manage directory context without restarting.
 
 ## Setup
 
@@ -28,6 +28,10 @@ Same as `/cd`, but also rewrites `path.cwd` and `path.root` in all existing assi
 ### `/add-dir <path>`
 
 Grant tool access to an additional directory without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package. Can be called multiple times to add several directories.
+
+### `/remove-dir <path>`
+
+Revoke tool access to a directory previously granted via `/add-dir`. The session working directory is unchanged; only the permission entries for the given path are removed.
 
 ## After moving
 
