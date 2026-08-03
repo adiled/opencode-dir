@@ -132,7 +132,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               duration: 5000,
             },
           }).catch(() => {})
-          output.parts = [{ type: "text", text: `${targetPath} is now an additional working directory with same permissions as primary working directory` }]
+          output.parts = [{ type: "text", id: "prt_" + Date.now(), sessionID: input.sessionID, messageID: "msg_" + Date.now(), text: `${targetPath} is now an additional working directory with same permissions as primary working directory` }]
         } else {
           await client.tui.showToast({
             body: {
@@ -142,7 +142,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               duration: 5000,
             },
           }).catch(() => {})
-          output.parts = [{ type: "text", text: `${targetPath} is now an additional working directory with same permissions as primary working directory` }]
+          output.parts = [{ type: "text", id: "prt_" + Date.now(), sessionID: input.sessionID, messageID: "msg_" + Date.now(), text: `${targetPath} is now an additional working directory with same permissions as primary working directory` }]
         }
         return
       }
@@ -181,7 +181,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             duration: 8000,
           },
         }).catch(() => {})
-        output.parts = [{ type: "text", text: `working directory is now ${exec.newDir}` }]
+        output.parts = [{ type: "text", id: "prt_" + Date.now(), sessionID: input.sessionID, messageID: "msg_" + Date.now(), text: `working directory is now ${exec.newDir}` }]
       } else if (exec.result.includes("Already in")) {
         await client.tui.showToast({
           body: {
@@ -191,7 +191,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             duration: 5000,
           },
         }).catch(() => {})
-        output.parts = [{ type: "text", text: `working directory is now ${targetPath}` }]
+        output.parts = [{ type: "text", id: "prt_" + Date.now(), sessionID: input.sessionID, messageID: "msg_" + Date.now(), text: `working directory is now ${targetPath}` }]
       }
     },
 
