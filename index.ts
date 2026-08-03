@@ -8,7 +8,6 @@ import {
   persistOverrides,
   execMove,
   execAddDir,
-  execRemoveDir,
   reportError,
   getOpencodeVersion,
   meetsMinVersion,
@@ -90,7 +89,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
     "command.execute.before": async (input, output) => {
       log("command.execute.before", { command: input.command, sessionID: input.sessionID })
-      if (input.command !== "cd" && input.command !== "mv" && input.command !== "add-dir" && input.command !== "remove-dir") return
+      if (input.command !== "cd" && input.command !== "mv" && input.command !== "add-dir") return
 
       const targetPath = input.arguments.trim()
       if (!targetPath) {
@@ -147,53 +146,6 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
         return
       }
-
-
-      if (input.command === "remove-dir") {
-        let ex: ExecResult
-        try {
-          ex = execRemoveDir(input.sessionID, targetPath)
-         } catch (e: unknown) {
-          const err = e instanceof Error ? e : new Error(String(e))
-          reportError(err)
-          ex = { result: `Error: ${err.message}` }
-         }
-
-        if (ex.result.startsWith("Error")) {
-          await client.tui.showToast({
-           body: {
-             title: "Error",
-             message: ex.result,
-             variant: "error",
-             duration: 8000,
-            },
-           }).catch(() => {})
-          return
-           }
-
-        if (ex.result.includes("not currently granted")) {
-          await client.tui.showToast({
-           body: {
-             title: "Not granted",
-             message: ex.result,
-             variant: "info",
-             duration: 5000,
-            },
-           }).catch(() => {})
-          output.parts = [{ type: "text", id: "prt_" + Date.now(), sessionID: input.sessionID, messageID: "msg_" + Date.now(), text: ex.result }]
-           } else {
-          await client.tui.showToast({
-           body: {
-             title: "Directory removed",
-             message: `Tools can no longer access ${targetPath} in this session.`,
-             variant: "info",
-             duration: 5000,
-            },
-           }).catch(() => {})
-          output.parts = [{ type: "text", id: "prt_" + Date.now(), sessionID: input.sessionID, messageID: "msg_" + Date.now(), text: ex.result }]
-           }
-        return
-          }
 
       let exec: ExecResult
       try {
