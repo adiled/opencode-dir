@@ -132,6 +132,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               duration: 5000,
             },
           }).catch(() => {})
+          output.parts = [{ type: "text", text: `${targetPath} is now an additional working directory with same permissions as primary working directory` }]
         } else {
           await client.tui.showToast({
             body: {
@@ -141,6 +142,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               duration: 5000,
             },
           }).catch(() => {})
+          output.parts = [{ type: "text", text: `${targetPath} is now an additional working directory with same permissions as primary working directory` }]
         }
         return
       }
@@ -179,6 +181,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             duration: 8000,
           },
         }).catch(() => {})
+        output.parts = [{ type: "text", text: `working directory is now ${exec.newDir}` }]
       } else if (exec.result.includes("Already in")) {
         await client.tui.showToast({
           body: {
@@ -188,6 +191,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             duration: 5000,
           },
         }).catch(() => {})
+        output.parts = [{ type: "text", text: `working directory is now ${targetPath}` }]
       }
     },
 
