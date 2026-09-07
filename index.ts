@@ -408,7 +408,12 @@ export const OpencodeDir: Plugin = async ({ client }) => {
   }
 }
 
+import { Effect } from "effect"
+const V2Effect = (_ctx: any) => Effect.void
 export default {
   id: "opencode-dir",
   server: OpencodeDir,
-}
+  // V2 compatibility: opencode2 validates id + effect/setup
+  effect: V2Effect,
+  setup: V2Effect,
+} as any

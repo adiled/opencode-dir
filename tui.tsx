@@ -5,6 +5,7 @@ import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plug
 import { createMemo, Show } from "solid-js"
 import * as path from "node:path"
 import * as fs from "node:fs"
+import { Effect } from "effect"
 
 function abbreviateHome(input: string, home: string) {
   if (!home) return input
@@ -88,7 +89,7 @@ export const tui: TuiPlugin = async (api) => {
             <api.ui.DialogPrompt title="Vault passphrase" placeholder="enter passphrase" onConfirm={(val: string) => {
               try {
                 const isInitGlobal = fs.existsSync(`${base}/opencode/opencode-dir/vault-need-${cur}`) && (fs.readFileSync(`${base}/opencode/opencode-dir/vault-need-${cur}`, "utf-8") as string).trim() === "init"
-                const key = isInitGlobal ? "opencode-dir-vault-global" : `opencode-dir-vault-${cur || sid}`;
+                const key = isInitGlobal ? "opencode-dir-vault-global" : `opencode-dir-vault-${cur}`;
                 const { execSync } = require("child_process") as any
                 if (process.platform === "darwin") {
                   const existed = (()=>{ try{ execSync(`security find-generic-password -s "${key}" -w 2>/dev/null`); return true } catch{ return false } })()
@@ -144,9 +145,12 @@ export const tui: TuiPlugin = async (api) => {
   })
 }
 
-const plugin: TuiPluginModule & { id: string } = {
+const V2TuiEffect = (_ctx: any) => Effect.void
+const plugin: TuiPluginModule & { id: string } & { effect?: any; setup?: any } = {
   id: "opencode-dir",
   tui,
-}
+  effect: V2TuiEffect,
+  setup: V2TuiEffect,
+} as any
 
 export default plugin
