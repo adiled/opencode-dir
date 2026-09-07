@@ -410,26 +410,17 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
 import { Effect } from "effect"
 const V2Effect = (ctx: any) => Effect.gen(function* () {
-  yield* Effect.log("opencode-dir V2 effect", { hasCommand: !!ctx.command, keys: Object.keys(ctx).join(",") })
   yield* ctx.command.transform((draft: any) => Effect.gen(function* () {
-    yield* Effect.log("opencode-dir V2 draft", { keys: Object.keys(draft), gkeys: Object.getOwnPropertyNames(draft), hasUpdate: typeof draft.update, hasAdd: typeof (draft as any).add, hasList: typeof draft.list })
-    const cmds: Record<string, { description: string; template: string }> = {
+    const cmds = {
       cd: { description: "Change session working directory", template: "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched." },
       mv: { description: "Move session and rewrite paths", template: "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location." },
       "add-dir": { description: "Grant tool access to an additional directory", template: "Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package." },
       "remove-dir": { description: "Revoke tool access to an additional directory", template: "Revoke tool access to $ARGUMENTS without changing the session's working directory." },
       vault: { description: "Encrypted vault: init|open|close <dir> encrypts at rest, decrypts per session", template: "User interacted with vault ($ARGUMENTS). No action needed" },
-    }
+    } as const
     for (const [name, info] of Object.entries(cmds)) {
-      if (typeof (draft as any).update === "function") {
-        ;(draft as any).update(name, (item: any) => { item.description = info.description; item.template = info.template })
-        yield* Effect.log(`opencode-dir V2 update ${name} ok`)
-      } else if (typeof (draft as any).add === "function") {
-        ;(draft as any).add(name, { description: info.description, template: info.template, name })
-        yield* Effect.log(`opencode-dir V2 add ${name} ok`)
-      } else {
-        yield* Effect.log(`opencode-dir V2 no update/add for ${name}`, { draftKeys: Object.keys(draft).join(",") })
-      }
+      if (typeof (draft as any).add === "function") (draft as any).add(name, info as any)
+      else if (typeof (draft as any).update === "function") (draft as any).update(name, (item: any) => { item.description = info.description; item.template = info.template })
     }
   }))
 })
