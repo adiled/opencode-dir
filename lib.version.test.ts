@@ -1,5 +1,5 @@
-import { describe, it, expect } from "bun:test"
-import { meetsMinVersion } from "./lib"
+import { describe, it, expect } from "vitest"
+import { meetsMinVersion } from "./lib.js"
 
 describe("meetsMinVersion", () => {
   it("returns true when version equals minimum", () => {
