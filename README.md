@@ -4,7 +4,7 @@ Directory operations for [opencode](https://opencode.ai) sessions. Change direct
 
 In OpenCode, when working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. **opencode-dir** plugin helps by unlocking multiple directory workflows, with special commands: `/cd`, `/mv`, `/add-dir`, `/remove-dir`.
 
-To encrypt certain directories, use `/vault init`, and give deliberate access using `/vault open`. 
+To encrypt certain directories, use `/vault init <dir>`, and give deliberate access using `/vault open <dir>`. 
 
 <center><img width="373" height="162" alt="Screenshot 2026-09-07 at 8 05 39 PM" src="https://github.com/user-attachments/assets/df0a907d-9da6-4e8d-b17f-60592b5ebce4" /></center>
 
@@ -39,9 +39,10 @@ Revoke tool access to a directory previously granted via `/add-dir`. The session
 
 ### `/vault <init|open|close> <path>`
 
-Encrypt a directory using a passphrase, or env `OPENCODE_DIR_VAULT_PASS`. `init` to encrypt. `open` creates a temporary access for that session. Use `close` to revoke access on-demand.
+Encrypt a directory using a passphrase or env `OPENCODE_DIR_VAULT_PASS`. `init` to set passphrase. `init <path>` to encrypt. `open <path>` to create a temporary access for that session. `close` to revoke access on-demand.
 
 ```bash
+/vault init
 /vault init ~/secrets
 /vault open ~/secrets
 /vault close ~/secrets
