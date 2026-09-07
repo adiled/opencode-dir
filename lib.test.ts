@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { Database } from "bun:sqlite"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { Database } from "./db.js"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "fs"
 import { execSync } from "child_process"
 import { join } from "path"
@@ -135,7 +135,7 @@ describe("getInitialCommit", () => {
 
   it("returns the root commit hash", () => {
     const hash = getInitialCommit(repo)
-    expect(hash).toBeString()
+    expect(typeof hash).toBe("string")
     expect(hash!.length).toBe(40)
   })
 
@@ -166,7 +166,7 @@ describe("resolveTarget", () => {
   it("resolves a git repo to dir and projectId", () => {
     const result = resolveTarget(repo)
     expect(result.dir).toBe(repo)
-    expect(result.projectId).toBeString()
+    expect(typeof result.projectId).toBe("string")
     expect(result.projectId.length).toBe(40)
   })
 
@@ -219,7 +219,7 @@ describe("updateSession", () => {
     expect(row.project_id).toBe("proj_new")
 
     const permission = JSON.parse(row.permission)
-    expect(permission).toBeArrayOfSize(1)
+    expect(permission).toHaveLength(1)
     expect(permission[0].permission).toBe("external_directory")
     expect(permission[0].pattern).toBe("/new/*")
     expect(permission[0].action).toBe("allow")
@@ -422,14 +422,14 @@ describe("getDbPath", () => {
     delete process.env.OPENCODE_DB
     delete process.env.OPENCODE_CHANNEL
     const p = getDbPath()
-    expect(p).toEndWith("/opencode/opencode.db")
+    expect(p.endsWith("/opencode/opencode.db")).toBe(true)
   })
 
   it("returns channel-suffixed path for non-standard channel", () => {
     delete process.env.OPENCODE_DB
     process.env.OPENCODE_CHANNEL = "local"
     const p = getDbPath()
-    expect(p).toEndWith("/opencode/opencode-local.db")
+    expect(p.endsWith("/opencode/opencode-local.db")).toBe(true)
   })
 
   it("returns opencode.db when OPENCODE_DISABLE_CHANNEL_DB is set", () => {
@@ -437,7 +437,7 @@ describe("getDbPath", () => {
     process.env.OPENCODE_CHANNEL = "custom"
     process.env.OPENCODE_DISABLE_CHANNEL_DB = "1"
     const p = getDbPath()
-    expect(p).toEndWith("/opencode/opencode.db")
+    expect(p.endsWith("/opencode/opencode.db")).toBe(true)
   })
 
   it("respects OPENCODE_DB absolute override", () => {
@@ -449,7 +449,7 @@ describe("getDbPath", () => {
     delete process.env.XDG_DATA_HOME
     process.env.OPENCODE_DB = "test.db"
     const p = getDbPath()
-    expect(p).toEndWith("/opencode/test.db")
+    expect(p.endsWith("/opencode/test.db")).toBe(true)
   })
 
   it("returns :memory: for OPENCODE_DB=:memory:", () => {

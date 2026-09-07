@@ -7,10 +7,11 @@
   "main": "index.ts",
   "files": [
     "index.ts",
-    "lib.ts"
+    "lib.ts",
+    "db.ts"
   ],
   "scripts": {
-    "test": "bun test"
+    "test": "vitest run"
   },
   "keywords": [
     "opencode",
@@ -36,7 +37,8 @@
     "@opencode-ai/plugin": ">=1.2.0"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.13",
-    "typescript": "^5.9.3"
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
   }
 }

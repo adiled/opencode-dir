@@ -13,8 +13,8 @@
  * 5. Verify results via both direct DB reads and HTTP API
  * 6. Kill server, clean up sandbox
  */
-import { describe, it, expect, beforeAll, afterAll } from "bun:test"
-import { Database } from "bun:sqlite"
+import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { Database } from "./db.js"
 import { spawn, execSync, type ChildProcess } from "child_process"
 import { mkdtempSync, mkdirSync, existsSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"

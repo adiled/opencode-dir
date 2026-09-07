@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite"
+import { Database } from "./db.js"
 import { resolve, join, isAbsolute } from "path"
 import { existsSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
@@ -354,8 +354,8 @@ export function hasSchema(db: Database): boolean {
   assertValidDb(db, "hasSchema")
   const row = db
     .query("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
-    .get() as { name: string } | null
-  return row !== null
+    .get() as { name: string } | null | undefined
+  return !!row
 }
 
 

@@ -13,17 +13,11 @@ if [ -z "$MSG" ]; then
   exit 1
 fi
 
-# Pre-release gates — run BEFORE any version bump (node-only, no bun required)
+# Pre-release gates — run BEFORE any version bump (node-only)
 echo "Running typecheck..."
 npx tsc --noEmit || { echo "❌ Typecheck failed — aborting release"; exit 1; }
 echo "Running tests..."
-if command -v bun >/dev/null 2>&1; then
-  bun test lib.test.ts || { echo "❌ Tests failed — aborting release"; exit 1; }
-else
-  echo "⚠️ bun not found — skipping bun tests (using node for typecheck only)"
-  # Optional: run node-based tests if available
-  # node --test lib.test.ts 2>/dev/null || true
-fi
+npx vitest run lib.test.ts lib.version.test.ts || { echo "❌ Tests failed — aborting release"; exit 1; }
 echo "✅ All checks passed"
 
 # Read current version
