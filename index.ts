@@ -57,19 +57,27 @@ export const OpencodeDir: Plugin = async ({ client }) => {
   }
 
   // Non-blocking self-update check — purges cache if newer version exists
-  checkForUpdate().then((result) => {
-    log("update check", result)
-    if (result.updated) {
-      client.tui.showToast({
-        body: {
-          title: "opencode-dir: update available",
-          message: `v${result.to} is available (you have v${result.from}). Restart opencode to apply.`,
-          variant: "info",
-          duration: 12000,
-        },
-      }).catch(() => {})
-    }
-  }).catch(() => {})
+  const updateResult = await checkForUpdate()
+  log("update check", updateResult)
+  if (updateResult.updated) {
+    client.tui.showToast({
+      body: {
+        title: "opencode-dir: update available",
+        message: `v${updateResult.to} is available (you have v${updateResult.from}). Restart opencode to apply.`,
+        variant: "info",
+        duration: 12000,
+      },
+    }).catch(() => {})
+  } else if (updateResult.error) {
+    // Report detailed error to Sentry for debugging
+    reportUpdateError({
+      message: `Update check failed`,
+      error: new Error(updateResult.error),
+      currentVersion: getVersion() ?? "unknown",
+      url: "https://registry.npmjs.org/opencode-dir/latest",
+    })
+    // Suppress toast on error - don't show update available toast on failure
+  }
 
   return {
     config: async (input) => {
