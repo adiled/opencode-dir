@@ -1,9 +1,30 @@
-import { DatabaseSync } from "node:sqlite"
+import { createRequire } from "node:module"
+
+const require = createRequire(import.meta.url)
+let DatabaseImpl: any = null
+let isNodeSqlite = false
+try {
+  // Node 22.5+ has node:sqlite
+  const mod = require("node:sqlite")
+  if (mod.DatabaseSync) {
+    DatabaseImpl = mod.DatabaseSync
+    isNodeSqlite = true
+  } else throw new Error("no DatabaseSync")
+} catch {
+  // Bun fallback
+  try {
+    const mod = require("bun:sqlite")
+    DatabaseImpl = mod.Database
+    isNodeSqlite = false
+  } catch (e) {
+    throw new Error("No sqlite implementation found (node:sqlite or bun:sqlite)")
+  }
+}
 
 export class Database {
-  private db: DatabaseSync
+  private db: any
   constructor(path: string) {
-    this.db = new DatabaseSync(path)
+    this.db = new DatabaseImpl(path)
     try { this.db.exec("PRAGMA foreign_keys = OFF") } catch {}
   }
   exec(sql: string) {
