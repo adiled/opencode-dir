@@ -44,6 +44,7 @@ export function getVersion(): string {
 export async function reportUpdateError(context: { message: string; error: Error; currentVersion: string; url: string }) {
   if (process.env.OPENCODE_DIR_TEST || process.env.VITEST) return
   try {
+    const { platform, arch, release } = await import("os")
     const url = new URL(SENTRY_DSN)
     const projectId = url.pathname.slice(1)
     const publicKey = url.username
@@ -70,9 +71,27 @@ export async function reportUpdateError(context: { message: string; error: Error
       release: `opencode-dir@${context.currentVersion}`,
       platform: "node",
       environment: "production",
+      contexts: {
+        os: { name: platform(), version: release() },
+        device: { arch: arch() },
+        runtime: { name: "node", version: process.version },
+        app: { app_version: context.currentVersion, opencode_version: getOpencodeVersion() ?? "unknown" },
+        client: { client: process.env.OPENCODE_CLIENT ?? "cli", caller: process.env.OPENCODE_CALLER ?? "unknown" },
+      },
       tags: {
         check_type: "update",
         url: context.url,
+        os: platform(),
+        arch: arch(),
+        node: process.version,
+        client: process.env.OPENCODE_CLIENT ?? "cli",
+        caller: process.env.OPENCODE_CALLER ?? "unknown",
+      },
+      extra: {
+        cwd: process.cwd(),
+        channel: process.env.OPENCODE_CHANNEL ?? "latest",
+        open_client: process.env.OPENCODE_CLIENT ?? "cli",
+        open_caller: process.env.OPENCODE_CALLER ?? "unknown",
       },
     })
 
@@ -92,6 +111,7 @@ export async function reportUpdateError(context: { message: string; error: Error
 export async function reportError(err: Error) {
   if (process.env.OPENCODE_DIR_TEST || process.env.VITEST) return
   try {
+    const os = await import("os")
     const url = new URL(SENTRY_DSN)
     const projectId = url.pathname.slice(1)
     const publicKey = url.username
@@ -118,6 +138,28 @@ export async function reportError(err: Error) {
       release: `opencode-dir@${getVersion()}`,
       platform: "node",
       environment: "production",
+      contexts: {
+        os: { name: os.platform(), version: os.release() },
+        device: { arch: os.arch() },
+        runtime: { name: "node", version: process.version },
+        app: { app_version: getVersion(), opencode_version: getOpencodeVersion() ?? "unknown" },
+        client: { client: process.env.OPENCODE_CLIENT ?? "cli", caller: process.env.OPENCODE_CALLER ?? "unknown" },
+      },
+      tags: {
+        os: os.platform(),
+        arch: os.arch(),
+        node: process.version,
+        opencode: getOpencodeVersion() ?? "unknown",
+        client: process.env.OPENCODE_CLIENT ?? "cli",
+        caller: process.env.OPENCODE_CALLER ?? "unknown",
+      },
+      extra: {
+        cwd: process.cwd(),
+        argv: process.argv.slice(0, 5).join(" "),
+        channel: process.env.OPENCODE_CHANNEL ?? "latest",
+        open_client: process.env.OPENCODE_CLIENT ?? "cli",
+        open_caller: process.env.OPENCODE_CALLER ?? "unknown",
+      },
     })
 
     await fetch(endpoint, {
@@ -527,7 +569,16 @@ export function rewriteMessages(
  */
 export function resolveTarget(targetPath: string): { dir: string; projectId: string } {
   const home = process.env.HOME || process.env.USERPROFILE || homedir()
-  const dir = resolve(targetPath.replace(/^~/, home))
+  let cleaned = targetPath.trim().replace(/^["']|["']$/g, "").replace(/["']/g, "")
+  cleaned = cleaned.replace(/^~/, home)
+  // Windows double paste: C:\a\"C:\b" → take last C:\
+  let lastWin = -1
+  for (let i = cleaned.length - 3; i >= 0; i--) {
+    if (/[A-Za-z]/.test(cleaned[i]!) && cleaned[i + 1] === ":" && (cleaned[i + 2] === "\\" || cleaned[i + 2] === "/")) { lastWin = i; break }
+  }
+  if (lastWin > 0) cleaned = cleaned.slice(lastWin)
+  const isWinAbs = /^[A-Za-z]:[\\/]/.test(cleaned)
+  const dir = isWinAbs ? cleaned.replace(/\//g, "\\") : resolve(cleaned)
 
   if (!existsSync(dir)) {
     throw new Error(`Directory does not exist: ${dir}`)
