@@ -1,6 +1,8 @@
 /** @jsxImportSource @opentui/solid */
 // @ts-nocheck
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
+console.error("[opencode-dir tui] file loaded")
+try { (globalThis as any).__opencodeDirTuiLoaded = true } catch {}
 
 function View(props: { api: any; sessionID: string }) {
   const theme = () => props.api.theme.current
