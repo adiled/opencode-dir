@@ -410,11 +410,11 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
 import { Effect } from "effect"
 const V2Effect = (ctx: any) => Effect.gen(function* () {
-  try { appendFileSync("/tmp/opencode-dir-v2.log", `V2 effect called ${new Date().toISOString()} command=${!!ctx.command}\n`) } catch {}
-  // Register same 5 commands for V2 via transform
+  try { appendFileSync("/tmp/opencode-dir-v2.log", `V2 effect called ${new Date().toISOString()} command=${!!ctx.command} keys=${Object.keys(ctx).join(",")}\n`) } catch {}
   try {
     yield* ctx.command.transform((draft: any) => {
-      try { appendFileSync("/tmp/opencode-dir-v2.log", `transform called draft.list=${draft.list().length}\n`) } catch {}
+      try { appendFileSync("/tmp/opencode-dir-v2.log", `transform draft keys=${Object.keys(draft).join(",")} hasUpdate=${typeof draft.update} listLen=${(() => { try{ return draft.list().length } catch{ return "err" } })()}\n`) } catch {}
+      try { appendFileSync("/tmp/opencode-dir-v2.log", `draft JSON ${JSON.stringify(Object.keys(draft))}\n`) } catch {}
       const cmds: Record<string, { description: string; template: string }> = {
         cd: { description: "Change session working directory", template: "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched." },
         mv: { description: "Move session and rewrite paths", template: "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location." },
@@ -423,15 +423,21 @@ const V2Effect = (ctx: any) => Effect.gen(function* () {
         vault: { description: "Encrypted vault: init|open|close <dir> encrypts at rest, decrypts per session", template: "User interacted with vault ($ARGUMENTS). No action needed" },
       }
       for (const [name, info] of Object.entries(cmds)) {
-        draft.update(name, (item: any) => {
-          item.description = info.description
-          item.template = info.template
-        })
+        if (typeof draft.update === "function") {
+          draft.update(name, (item: any) => { item.description = info.description; item.template = info.template })
+        } else if (draft.commands instanceof Map) {
+          // fallback: draft is raw Data
+          const m = draft.commands as Map<string, any>
+          const cur = m.get(name) ?? { name, template: "" }
+          cur.description = info.description; cur.template = info.template; m.set(name, cur)
+          try { appendFileSync("/tmp/opencode-dir-v2.log", `fallback Map set ${name}\n`) } catch {}
+        } else {
+          try { appendFileSync("/tmp/opencode-dir-v2.log", `no update and no Map for ${name} draft=${JSON.stringify(draft)}\n`) } catch {}
+        }
       }
-      try { appendFileSync("/tmp/opencode-dir-v2.log", `after update list=${draft.list().map((c:any)=>c.name).join(",")}\n`) } catch {}
     })
     try { appendFileSync("/tmp/opencode-dir-v2.log", `transform done\n`) } catch {}
-  } catch (e: any) { try { appendFileSync("/tmp/opencode-dir-v2.log", `transform error ${e?.message}\n`) } catch {} }
+  } catch (e: any) { try { appendFileSync("/tmp/opencode-dir-v2.log", `transform error ${e?.message} ${e?.stack?.slice(0,500)}\n`) } catch {} }
 })
 export default {
   id: "opencode-dir",
