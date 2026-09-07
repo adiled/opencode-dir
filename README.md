@@ -10,14 +10,12 @@ To encrypt certain directories, use `/vault init`, and give deliberate access us
 
 ## Setup
 
-Add to `opencode.json` and `tui.json`:
+Add to `opencode.json` and `tui.json`, and restart OpenCode:
 ```json
 {
   "plugin": ["opencode-dir"]
 }
 ```
-
-Restart opencode. The plugin auto-installs commands on first load. The TUI footer shows `parent/name:branch` + `• OpenCode` + `+N add-dir` stacked, live per session.
 
 ## Commands
 
