@@ -113,6 +113,17 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
     "command.execute.before": async (input, output) => {
       log("command.execute.before", { command: input.command, sessionID: input.sessionID })
+      // per-command protocol drift check
+      try {
+        const { registry, runWithDriftCheck } = await import("./lib.protocol.js")
+        const proto = registry[input.command]
+        if (proto) {
+          const db = new (await import("./db.js")).Database((await import("./lib.js")).getDbPath())
+          try {
+            await runWithDriftCheck(db, proto, async (msg) => { await client.tui.showToast({ body: { title: "Heads up", message: msg, variant: "info", duration: 6000 } }).catch(()=>{}) }, () => {})
+          } finally { db.close() }
+        }
+      } catch {}
       if (input.command === "vault") {
         const raw = input.arguments.trim()
         const [sub, ...rest] = raw.split(/\s+/)
