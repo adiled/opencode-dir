@@ -2,40 +2,86 @@
 
 // @ts-nocheck
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
-import { createMemo } from "solid-js"
+import { createMemo, Show } from "solid-js"
+import * as path from "node:path"
 
-function View(props: { api: TuiPluginApi; sessionID: string }) {
+function abbreviateHome(input: string, home: string) {
+  if (!home) return input
+  const relative = path.relative(home, input)
+  if (relative === "") return "~"
+  if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) return input
+  return "~" + path.sep + relative
+}
+
+export function View(props: { api: TuiPluginApi; sessionID: string }) {
   const theme = () => props.api.theme.current
-  const primary = createMemo(() => {
+  const home = (process.env.HOME || "") as string
+  const pathInfo = createMemo(() => {
     const s = props.api.state.session.get(props.sessionID) as any
-    return s?.directory ?? props.api.state.path.directory ?? "?"
+    const dir = s?.directory || props.api.state.path.directory || "?"
+    const out = abbreviateHome(dir, home)
+    const branch = s?.directory === props.api.state.path.directory ? (props.api.state.vcs as any)?.branch : undefined
+    const text = branch ? out + ":" + branch : out
+    const parts = text.split("/")
+    return { parent: parts.slice(0, -1).join("/"), name: parts.at(-1) ?? "", dir }
+  })
+  const extras = createMemo(() => {
+    const s = props.api.state.session.get(props.sessionID) as any
+    const perms: any[] = s?.permission ?? s?.permissions ?? []
+    const primary = pathInfo().dir
+    const list = perms
+      .filter((p: any) => p?.permission === "external_directory" || p?.action === "external_directory")
+      .map((p: any) => (p.pattern ?? p.resource ?? "") as string)
+      .map((d: string) => d.replace(/\/\*$/, ""))
+      .filter((d: string) => d && d !== primary)
+      .map((d: string) => abbreviateHome(d, home))
+    try { if (list.length) props.api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: `extras ${list.join(",")}` } }).catch(()=>{}) } catch {}
+    return list
   })
   return (
-    <box flexDirection="column" gap={1} paddingLeft={1} paddingRight={1}>
-      <text fg={theme().textMuted}>
-        <span style={{ fg: theme().text }}>{primary()}</span>
-        <span style={{ fg: theme().textMuted }}> (opencode-dir)</span>
+    <box gap={1}>
+      <Show when={extras().length > 0}>
+        <text fg={theme().textMuted}>+{String(extras().length)} add-dir: {extras().join(", ")}</text>
+      </Show>
+      <text>
+        <span style={{ fg: theme().textMuted }}>{pathInfo().parent}/</span>
+        <span style={{ fg: theme().text }}>{pathInfo().name}</span>
       </text>
       <text fg={theme().textMuted}>
         <span style={{ fg: theme().success }}>•</span> <b>Open</b>
-        <span style={{ fg: theme().text }}><b>Code</b></span> {props.api.app.version}
+        <span style={{ fg: theme().text }}><b>Code</b></span> {` ${props.api.app.version}`}
       </text>
     </box>
   )
 }
 
-const tui: TuiPlugin = async (api) => {
+export const tui: TuiPlugin = async (api) => {
+  try { api.ui.toast({ message: "opencode-dir tui loaded" }) } catch {}
   try { await api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: `tui load id=opencode-dir ver=${api.app.version}` } }) } catch {}
   api.slots.register({
-    order: 101,
+    id: "opencode-dir-content",
+    order: 120,
     slots: {
-      sidebar_footer(_ctx, props) {
-        try { api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: `sidebar_footer render sid=${props.session_id}` } }).catch(() => {}) } catch {}
-        return <View api={api} sessionID={props.session_id} />
+      sidebar_content(_ctx, props) {
+        return <box><text fg={api.theme.current.textMuted}>DEBUG content {props.session_id.slice(0,8)}</text></box>
       },
     },
   })
-  try { await api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: "slots.register done order 101" } }) } catch {}
+  api.slots.register({
+    id: "opencode-dir-footer",
+    order: 50,
+    slots: {
+      sidebar_footer(_ctx, props) {
+        try {
+          return <View api={api} sessionID={props.session_id} />
+        } catch (e) {
+          try { api.client.app.log({ body: { service: "opencode-dir-tui", level: "error", message: `sidebar_footer View throw: ${String(e).slice(0,400)}` } }).catch(() => {}) } catch {}
+          return <box><text fg={api.theme.current.error}>ERR footer {String(e).slice(0,60)}</text></box> as any
+        }
+      },
+    },
+  })
+  try { api.ui.toast({ message: "footer registered 200" }) } catch {}
 }
 
 const plugin: TuiPluginModule & { id: string } = {
