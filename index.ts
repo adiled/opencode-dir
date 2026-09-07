@@ -409,7 +409,24 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 }
 
 import { Effect } from "effect"
-const V2Effect = (_ctx: any) => Effect.void
+const V2Effect = (ctx: any) => Effect.gen(function* () {
+  // Register same 5 commands for V2 via transform
+  yield* ctx.command.transform((draft: any) => {
+    const cmds: Record<string, { description: string; template: string }> = {
+      cd: { description: "Change session working directory", template: "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched." },
+      mv: { description: "Move session and rewrite paths", template: "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location." },
+      "add-dir": { description: "Grant tool access to an additional directory", template: "Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package." },
+      "remove-dir": { description: "Revoke tool access to an additional directory", template: "Revoke tool access to $ARGUMENTS without changing the session's working directory." },
+      vault: { description: "Encrypted vault: init|open|close <dir> encrypts at rest, decrypts per session", template: "User interacted with vault ($ARGUMENTS). No action needed" },
+    }
+    for (const [name, info] of Object.entries(cmds)) {
+      draft.update(name, (item: any) => {
+        item.description = info.description
+        item.template = info.template
+      })
+    }
+  })
+})
 export default {
   id: "opencode-dir",
   server: OpencodeDir,
