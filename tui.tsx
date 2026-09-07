@@ -25,14 +25,17 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
 }
 
 const tui: TuiPlugin = async (api) => {
+  try { await api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: `tui load id=opencode-dir ver=${api.app.version}` } }) } catch {}
   api.slots.register({
     order: 101,
     slots: {
       sidebar_footer(_ctx, props) {
+        try { api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: `sidebar_footer render sid=${props.session_id}` } }).catch(() => {}) } catch {}
         return <View api={api} sessionID={props.session_id} />
       },
     },
   })
+  try { await api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: "slots.register done order 101" } }) } catch {}
 }
 
 const plugin: TuiPluginModule & { id: string } = {
