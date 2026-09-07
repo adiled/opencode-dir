@@ -442,10 +442,27 @@ export function updateSession(db: Database, sessionId: string, newDir: string, n
     existing.push({ permission: "external_directory", pattern, action: "allow" })
   }
   const permission = JSON.stringify(existing)
-  return db.run(
+  const changes = db.run(
     `UPDATE session SET directory = ?, project_id = ?, permission = ?, time_updated = ? WHERE id = ?`,
     [newDir, newProjectId, permission, Date.now(), sessionId],
   ).changes
+  // Also ensure permission table entry for new project (PermissionV2) - only if session updated
+  if (changes > 0) {
+    try {
+      const row = db
+        .query(`SELECT id FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`)
+        .get(newProjectId, pattern) as { id: string } | null
+      if (!row) {
+        const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
+        const now = Date.now()
+        db.run(
+          `INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)`,
+          [id, newProjectId, pattern, now, now],
+        )
+      }
+    } catch {}
+  }
+  return changes
 }
 
 /**
@@ -560,39 +577,99 @@ export function getSessionPermissions(db: Database, sessionId: string): unknown[
 
 /**
  * Removes (un-grants) an external_directory permission for a session.
- * Returns the number of rows removed (0 = not found), -1 = not found in DB.
+ * Handles both legacy session.permission JSON and new permission table (PermissionSaved).
  */
 export function removeDirPermission(db: Database, sessionId: string, dir: string): number {
-  const existing = getSessionPermissions(db, sessionId)
   const pattern = dir + "/*"
+  const info = getSessionInfo(db, sessionId)
+  // Legacy: remove from session.permission JSON
+  const existing = getSessionPermissions(db, sessionId)
   const filtered = existing.filter(
     (r: any) => !(r.permission === "external_directory" && r.pattern === pattern),
   )
-  const removed = existing.length - filtered.length
-  if (removed === 0) return 0
-  const status = db.run(
-    `UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`,
-    [JSON.stringify(filtered), Date.now(), sessionId],
-  ).changes
-  return status > 0 ? removed : 0
+  const legacyRemoved = existing.length - filtered.length
+  if (legacyRemoved > 0) {
+    db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
+      JSON.stringify(filtered),
+      Date.now(),
+      sessionId,
+    ])
+  }
+  // New: remove from permission table (PermissionV2)
+  let savedRemoved = 0
+  if (info) {
+    try {
+      const res = db.run(
+        `DELETE FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`,
+        [info.projectId, pattern],
+      )
+      savedRemoved = res.changes
+    } catch {}
+  }
+  const totalRemoved = Math.max(legacyRemoved, savedRemoved)
+  return totalRemoved > 0 ? totalRemoved : 0
 }
 
-/** Appends an external_directory permission without touching directory or project. */
+/** Appends an external_directory permission without touching directory or project. Handles both legacy and new tables. */
 export function appendDirPermission(db: Database, sessionId: string, dir: string): number {
-  const existing = getSessionPermissions(db, sessionId)
   const pattern = dir + "/*"
+  const info = getSessionInfo(db, sessionId)
+  if (!info) return 0
+  const existing = getSessionPermissions(db, sessionId)
 
-  // Check for duplicate
-  const already = existing.some(
+  const alreadyLegacy = existing.some(
     (r: any) => r.permission === "external_directory" && r.pattern === pattern,
   )
-  if (already) return -1
+  let alreadySaved = false
+  if (info) {
+    try {
+      const row = db
+        .query(`SELECT id FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`)
+        .get(info.projectId, pattern) as { id: string } | null
+      alreadySaved = !!row
+    } catch {}
+  }
+  if (alreadyLegacy && alreadySaved) return -1
+  // If either is duplicate, treat as duplicate to avoid partial writes
+  if (alreadyLegacy || alreadySaved) {
+    // Ensure both are present for consistency
+    if (!alreadyLegacy) {
+      existing.push({ permission: "external_directory", pattern, action: "allow" })
+      db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
+        JSON.stringify(existing),
+        Date.now(),
+        sessionId,
+      ])
+    }
+    if (!alreadySaved && info) {
+      try {
+        const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
+        const now = Date.now()
+        db.run(
+          `INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)`,
+          [id, info.projectId, pattern, now, now],
+        )
+      } catch {}
+    }
+    return -1
+  }
 
   existing.push({ permission: "external_directory", pattern, action: "allow" })
-  return db.run(
-    `UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`,
-    [JSON.stringify(existing), Date.now(), sessionId],
-  ).changes
+  const changes = db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
+    JSON.stringify(existing),
+    Date.now(),
+    sessionId,
+  ]).changes
+  if (changes === 0) return 0
+  try {
+    const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
+    const now = Date.now()
+    db.run(
+      `INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)`,
+      [id, info.projectId, pattern, now, now],
+    )
+  } catch {}
+  return changes
 }
 
 export interface ExecResult {
