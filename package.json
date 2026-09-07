@@ -40,13 +40,14 @@
   "publishConfig": {
     "access": "public"
   },
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.4.3"
+  "engines": {
+    "opencode": ">=1.4.3"
   },
-  "peerDependenciesMeta": {
-    "@opentui/core": { "optional": true },
-    "@opentui/solid": { "optional": true },
-    "solid-js": { "optional": true }
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.4.3",
+    "@opentui/core": "^0.4.2",
+    "@opentui/solid": "^0.4.2",
+    "solid-js": "^1.9.12"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.29",
