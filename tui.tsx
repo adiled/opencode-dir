@@ -2,55 +2,22 @@
 // @ts-nocheck
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
 import { createMemo } from "solid-js"
-import { Database } from "./db"
-import { getDbPath } from "./lib"
-
-function abbreviateHome(dir: string, home: string): string {
-  if (dir === home) return "~"
-  if (dir.startsWith(home + "/")) return "~" + dir.slice(home.length)
-  return dir
-}
+import { useTuiPaths } from "@opencode-ai/tui/context/runtime"
 
 function View(props: { api: any; sessionID: string }) {
+  const paths = useTuiPaths()
   const theme = () => props.api.theme.current
   const primary = createMemo(() => {
     const s = props.api.state.session.get(props.sessionID) as any
-    const dir = s?.directory ?? props.api.state.path.directory ?? "?"
-    const home = (props.api as any).state?.path?.home ?? ""
-    // Fallback home from directory parent if not in state
-    const h = home || "/Users/adil"
-    return abbreviateHome(dir, h)
-  })
-  const extra = createMemo(() => {
-    try {
-      const s = props.api.state.session.get(props.sessionID) as any
-      if (!s) return [] as string[]
-      const pid = (s as any).projectID ?? (s as any).project_id
-      if (!pid) return [] as string[]
-      const db = new Database(getDbPath())
-      try {
-        const rows = db.query(`SELECT resource FROM permission WHERE project_id = ? AND action = 'external_directory'`).all(pid) as any[]
-        const home = (props.api as any).state?.path?.home ?? "/Users/adil"
-        const prim = primary()
-        // primary is abbreviated, need to compare full vs abbreviated: filter by full
-        const fullPrimary = (s as any).directory ?? ""
-        return rows
-          .map((r: any) => (r.resource as string).replace(/\/\*$/, ""))
-          .filter((d: string) => d !== fullPrimary)
-          .map((d: string) => abbreviateHome(d, home))
-      } finally {
-        db.close()
-      }
-    } catch {
-      return [] as string[]
-    }
+    const dir = s?.directory ?? props.api.state.path.directory ?? paths.cwd ?? "?"
+    return dir.startsWith(paths.home + "/") ? "~" + dir.slice(paths.home.length) : dir === paths.home ? "~" : dir
   })
 
   return (
     <box flexDirection="column" gap={1} paddingLeft={1} paddingRight={1}>
       <text fg={theme().textMuted}>
         <span style={{ fg: theme().text }}>{primary()}</span>
-        {extra().length ? <span style={{ fg: theme().textMuted }}> +{extra().length} add-dir: {extra().join(", ")}</span> : null}
+        <span style={{ fg: theme().textMuted }}> (opencode-dir)</span>
       </text>
       <text fg={theme().textMuted}>
         <span style={{ fg: theme().success }}>•</span> <b>Open</b>
