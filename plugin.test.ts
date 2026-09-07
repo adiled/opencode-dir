@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { OpencodeDir } from "./index"
 
 describe("plugin config", () => {
-  it("registers all 4 slash commands", async () => {
+  it("registers all 5 slash commands", async () => {
     const fakeClient: any = {
       tui: { showToast: () => ({ catch: () => {} }) },
     }
@@ -10,7 +10,7 @@ describe("plugin config", () => {
     const plugin = await OpencodeDir({ client: fakeClient } as any)
     const input: any = { command: {} }
     await plugin.config!(input)
-    expect(Object.keys(input.command).sort()).toEqual(["add-dir", "cd", "mv", "remove-dir"].sort())
+    expect(Object.keys(input.command).sort()).toEqual(["add-dir", "cd", "mv", "remove-dir", "vault"].sort())
     expect(input.command["remove-dir"].description).toMatch(/Revoke/)
   })
 

@@ -21,6 +21,7 @@ import {
   getSessionInfo,
   getDbPath,
 } from "./lib"
+import { vaultInit, vaultOpen, vaultClose } from "./lib.vault"
 import { Database } from "./db"
 
 const home = process.env.HOME || process.env.USERPROFILE || homedir()
@@ -104,10 +105,50 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         description: "Revoke tool access to an additional directory",
         template: "Revoke tool access to $ARGUMENTS without changing the session's working directory.",
       }
+      input.command.vault = {
+        description: "Encrypted vault: init|open|close <dir>",
+        template: "Vault operation $ARGUMENTS — init|open|close a directory (encrypted at rest, session-scoped decrypt).",
+      }
     },
 
     "command.execute.before": async (input, output) => {
       log("command.execute.before", { command: input.command, sessionID: input.sessionID })
+      if (input.command === "vault") {
+        const raw = input.arguments.trim()
+        const [sub, ...rest] = raw.split(/\s+/)
+        const target = rest.join(" ").trim()
+        const pass = process.env.VAULT_PASS || "default-pass"
+        // prompt for passphrase via tui if not env
+        if (!target && sub !== "list") {
+          await client.tui.showToast({ body: { title: "Usage", message: "/vault init|open|close <dir>", variant: "info", duration: 5000 } }).catch(()=>{})
+          return
+        }
+        if (sub === "init") {
+          const r = vaultInit(target, pass)
+          output.parts = [{ type: "text", id: "prt_"+Date.now(), sessionID: input.sessionID, messageID: "msg_"+Date.now(), text: r.ok ? `Vault init: ${target} encrypted` : `Error: ${r.error}` }]
+          await client.tui.showToast({ body: { title: r.ok ? "Vault init" : "Error", message: r.ok ? `${target} encrypted` : r.error!, variant: r.ok ? "info" : "error", duration: 5000 } }).catch(()=>{})
+          return
+        }
+        if (sub === "open") {
+          const db = new Database(getDbPath())
+          try {
+            const r = vaultOpen(db, input.sessionID, target, pass)
+            output.parts = [{ type: "text", id: "prt_"+Date.now(), sessionID: input.sessionID, messageID: "msg_"+Date.now(), text: r.ok ? `Vault open: ${r.tmp} (session-scoped)` : `Error: ${r.error}` }]
+            await client.tui.showToast({ body: { title: r.ok ? "Vault open" : "Error", message: r.ok ? `Decrypted to ${r.tmp}` : r.error!, variant: r.ok ? "info" : "error", duration: 6000 } }).catch(()=>{})
+          } finally { db.close() }
+          return
+        }
+        if (sub === "close") {
+          const db = new Database(getDbPath())
+          try {
+            const r = vaultClose(db, input.sessionID, target, pass)
+            output.parts = [{ type: "text", id: "prt_"+Date.now(), sessionID: input.sessionID, messageID: "msg_"+Date.now(), text: r.ok ? `Vault closed: ${target}` : `Error: ${r.error}` }]
+            await client.tui.showToast({ body: { title: r.ok ? "Vault closed" : "Error", message: r.ok ? `${target} re-encrypted` : r.error!, variant: r.ok ? "info" : "error", duration: 5000 } }).catch(()=>{})
+          } finally { db.close() }
+          return
+        }
+        return
+      }
       if (input.command !== "cd" && input.command !== "mv" && input.command !== "add-dir" && input.command !== "remove-dir") return
 
       const targetPath = input.arguments.trim()

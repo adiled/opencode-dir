@@ -12,6 +12,7 @@
   "files": [
     "index.ts",
     "lib.ts",
+    "lib.vault.ts",
     "db.ts",
     "dist/"
   ],
