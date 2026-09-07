@@ -100,6 +100,10 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         description: "Grant tool access to an additional directory",
         template: "Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package.",
       }
+      input.command["remove-dir"] = {
+        description: "Revoke tool access to an additional directory",
+        template: "Revoke tool access to $ARGUMENTS without changing the session's working directory.",
+      }
     },
 
     "command.execute.before": async (input, output) => {
