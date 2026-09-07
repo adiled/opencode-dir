@@ -17,7 +17,11 @@ import {
   MIN_OPENCODE_VERSION,
   checkForUpdate,
   initPluginGuard,
+  getSessionPermissions,
+  getSessionInfo,
+  getDbPath,
 } from "./lib"
+import { Database } from "./db.js"
 
 const home = process.env.HOME || process.env.USERPROFILE || homedir()
 const STATE_DIR = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`
@@ -286,12 +290,48 @@ export const OpencodeDir: Plugin = async ({ client }) => {
     "experimental.chat.system.transform": async (input, output) => {
       try {
         const override = dirOverrides.get(input.sessionID ?? "")
-        if (!override) return
-
-        output.system[0] = output.system[0].replace(
-          /Working directory: .*/,
-          `Working directory: ${override.newDir}`,
-        )
+        if (override) {
+          output.system[0] = output.system[0].replace(
+            /Working directory: .*/,
+            `Working directory: ${override.newDir}`,
+          )
+        }
+        // Reflect add-dir: show additional directories from permission (legacy + new table)
+        const sid = input.sessionID
+        if (sid) {
+          try {
+            const db = new Database(getDbPath())
+            try {
+              const info = getSessionInfo(db as any, sid)
+              const perms = getSessionPermissions(db as any, sid) as any[]
+              const dirs = perms
+                .filter((r) => r.permission === "external_directory")
+                .map((r) => r.pattern.replace(/\/\*$/, ""))
+              // Also include permission table entries for this project
+              if (info) {
+                try {
+                  const rows = db
+                    .query(`SELECT resource FROM permission WHERE project_id = ? AND action = 'external_directory'`)
+                    .all(info.projectId) as { resource: string }[]
+                  for (const row of rows) {
+                    const d = row.resource.replace(/\/\*$/, "")
+                    if (!dirs.includes(d)) dirs.push(d)
+                  }
+                } catch {}
+              }
+              if (dirs.length) {
+                // Remove primary from list (already shown as Working directory)
+                const primary = override?.newDir ?? info?.directory
+                const extra = dirs.filter((d) => d !== primary)
+                if (extra.length) {
+                  output.system[0] += `\nAdditional working directories: ${extra.join(", ")}`
+                }
+              }
+            } finally {
+              db.close()
+            }
+          } catch {}
+        }
       } catch (e) {
         if (e instanceof Error) reportError(e)
       }
