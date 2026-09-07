@@ -56,17 +56,7 @@ export function View(props: { api: TuiPluginApi; sessionID: string }) {
 }
 
 export const tui: TuiPlugin = async (api) => {
-  try { api.ui.toast({ message: "opencode-dir tui loaded" }) } catch {}
   try { await api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: `tui load id=opencode-dir ver=${api.app.version}` } }) } catch {}
-  api.slots.register({
-    id: "opencode-dir-content",
-    order: 120,
-    slots: {
-      sidebar_content(_ctx, props) {
-        return <box><text fg={api.theme.current.textMuted}>DEBUG content {props.session_id.slice(0,8)}</text></box>
-      },
-    },
-  })
   api.slots.register({
     id: "opencode-dir-footer",
     order: 50,
@@ -81,7 +71,6 @@ export const tui: TuiPlugin = async (api) => {
       },
     },
   })
-  try { api.ui.toast({ message: "footer registered 200" }) } catch {}
 }
 
 const plugin: TuiPluginModule & { id: string } = {

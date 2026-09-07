@@ -49,16 +49,13 @@ function mockApi() {
 }
 
 describe("tui", () => {
-  it("registers sidebar_footer with order 50 and sidebar_content 120", async () => {
+  it("registers sidebar_footer with order 50", async () => {
     const { api, slots } = mockApi()
     await tui(api as any)
-    expect(slots).toHaveLength(2)
+    expect(slots).toHaveLength(1)
     const footer = slots.find((s: any) => s.slots.sidebar_footer)
-    const content = slots.find((s: any) => s.slots.sidebar_content)
     expect(footer.order).toBe(50)
-    expect(content.order).toBe(120)
     expect(footer.slots.sidebar_footer).toBeDefined()
-    expect(content.slots.sidebar_content).toBeDefined()
   })
 
   it("has correct plugin id opencode-dir", async () => {
