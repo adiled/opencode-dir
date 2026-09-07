@@ -2,15 +2,12 @@
 // @ts-nocheck
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
 import { createMemo } from "solid-js"
-import { useTuiPaths } from "@opencode-ai/tui/context/runtime"
 
 function View(props: { api: any; sessionID: string }) {
-  const paths = useTuiPaths()
   const theme = () => props.api.theme.current
   const primary = createMemo(() => {
     const s = props.api.state.session.get(props.sessionID) as any
-    const dir = s?.directory ?? props.api.state.path.directory ?? paths.cwd ?? "?"
-    return dir.startsWith(paths.home + "/") ? "~" + dir.slice(paths.home.length) : dir === paths.home ? "~" : dir
+    return s?.directory ?? props.api.state.path.directory ?? "?"
   })
 
   return (
