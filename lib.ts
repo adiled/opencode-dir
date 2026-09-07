@@ -42,6 +42,7 @@ export function getVersion(): string {
 /** Reports an error to Sentry. Silent on failure - must never break the plugin. */
 // Context-rich error report for update checks
 export async function reportUpdateError(context: { message: string; error: Error; currentVersion: string; url: string }) {
+  if (process.env.OPENCODE_DIR_TEST || process.env.VITEST) return
   try {
     const url = new URL(SENTRY_DSN)
     const projectId = url.pathname.slice(1)
@@ -89,6 +90,7 @@ export async function reportUpdateError(context: { message: string; error: Error
 }
 
 export async function reportError(err: Error) {
+  if (process.env.OPENCODE_DIR_TEST || process.env.VITEST) return
   try {
     const url = new URL(SENTRY_DSN)
     const projectId = url.pathname.slice(1)
