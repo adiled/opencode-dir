@@ -1,3 +1,4 @@
+/** @jsxImportSource @opentui/solid */
 // @ts-nocheck
 import type { TuiPlugin } from "@opencode-ai/plugin/tui"
 import { Database } from "./db"
