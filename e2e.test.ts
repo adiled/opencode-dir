@@ -14,7 +14,7 @@
  * 6. Kill server, clean up sandbox
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { Database } from "./db.js"
+import { Database } from "./db"
 import { spawn, execSync, type ChildProcess } from "child_process"
 import { mkdtempSync, mkdirSync, existsSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"

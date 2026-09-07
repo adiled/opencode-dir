@@ -21,7 +21,7 @@ import {
   getSessionInfo,
   getDbPath,
 } from "./lib"
-import { Database } from "./db.js"
+import { Database } from "./db"
 
 const home = process.env.HOME || process.env.USERPROFILE || homedir()
 const STATE_DIR = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`

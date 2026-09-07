@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
-import { Database } from "./db.js"
+import { Database } from "./db"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "fs"
 import { execSync } from "child_process"
 import { join } from "path"

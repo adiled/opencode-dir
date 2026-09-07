@@ -1,4 +1,4 @@
-import { Database } from "./db.js"
+import { Database } from "./db"
 import { resolve, join, isAbsolute } from "path"
 import { existsSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
