@@ -5,17 +5,49 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypt
 import { Database } from "./db"
 import { appendDirPermission, removeDirPermission } from "./lib"
 
+function keychainGet(key: string): string | null {
+  try {
+    const { execSync } = require("child_process") as any
+    if (process.platform === "darwin") {
+      return execSync(`security find-generic-password -s "${key}" -w 2>/dev/null`, { encoding: "utf-8" }).trim() || null
+    }
+    if (process.platform === "linux") {
+      return execSync(`secret-tool lookup opencode-dir ${key} 2>/dev/null`, { encoding: "utf-8" }).trim() || null
+    }
+  } catch {}
+  return null
+}
+function keychainSet(key: string, val: string) {
+  const { execSync } = require("child_process") as any
+  if (process.platform === "darwin") {
+    execSync(`security delete-generic-password -s "${key}" 2>/dev/null || true`); execSync(`security add-generic-password -s "${key}" -a "${process.env.USER}" -w "${val.replace(/"/g, '\\"')}" 2>/dev/null`)
+  } else if (process.platform === "linux") {
+    execSync(`printf "%s" "${val.replace(/"/g, '\\"')}" | secret-tool store --label="opencode-dir ${key}" opencode-dir ${key} 2>/dev/null`)
+  } else {
+    throw new Error("keychain not supported")
+  }
+}
 export function getVaultPassFile(sessionId: string): string {
   const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
   const base = process.env.XDG_DATA_HOME || (home + "/.local/share")
   return `${base}/opencode/opencode-dir/vault-pass-${sessionId}`
 }
+export function getGlobalVaultPassFile(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const base = process.env.XDG_DATA_HOME || (home + "/.local/share")
+  return `${base}/opencode/opencode-dir/vault-pass-global`
+}
 export function getVaultPass(sessionId?: string): string | null {
   if (sessionId) {
-    try { const p = readFileSync(getVaultPassFile(sessionId), "utf-8").trim(); if (p) return p } catch {}
+    const k = keychainGet(`opencode-dir-vault-${sessionId}`); if (k) return k
   }
+  const kg = keychainGet("opencode-dir-vault-global"); if (kg) return kg
   if (process.env.OPENCODE_DIR_VAULT_PASS) return process.env.OPENCODE_DIR_VAULT_PASS
   return null
+}
+export function setVaultPass(sessionId: string | null, pass: string) {
+  if (sessionId) keychainSet(`opencode-dir-vault-${sessionId}`, pass)
+  else keychainSet("opencode-dir-vault-global", pass)
 }
 export function needVaultPassFile(sessionId: string): string {
   const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()

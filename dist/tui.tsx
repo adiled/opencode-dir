@@ -87,11 +87,18 @@ export const tui: TuiPlugin = async (api) => {
           api.ui.dialog.replace(() => (
             <api.ui.DialogPrompt title="Vault passphrase" placeholder="enter passphrase" onConfirm={(val: string) => {
               try {
-                const file = `${base}/opencode/opencode-dir/vault-pass-${cur || sid}`;
-                const existed = fs.existsSync(file) as boolean;
-                fs.mkdirSync(path.dirname(file), { recursive: true } as any); (fs as any).writeFileSync(file, val, { mode: 0o600 } as any);
-                api.ui.toast({ message: existed ? "Passphrase updated" : "Passphrase set" } as any)
-              } catch {}
+                const isInitGlobal = fs.existsSync(`${base}/opencode/opencode-dir/vault-need-${cur}`) && (fs.readFileSync(`${base}/opencode/opencode-dir/vault-need-${cur}`, "utf-8") as string).trim() === "init"
+                const key = isInitGlobal ? "opencode-dir-vault-global" : `opencode-dir-vault-${cur || sid}`;
+                const { execSync } = require("child_process") as any
+                if (process.platform === "darwin") {
+                  const existed = (()=>{ try{ execSync(`security find-generic-password -s "${key}" -w 2>/dev/null`); return true } catch{ return false } })()
+                  execSync(`security delete-generic-password -s "${key}" 2>/dev/null || true`); execSync(`security add-generic-password -s "${key}" -a "${process.env.USER}" -w "${val.replace(/"/g, '\\"')}"`)
+                  api.ui.toast({ message: existed ? "Passphrase updated" : "Passphrase set" } as any)
+                } else {
+                  execSync(`printf "%s" "${val.replace(/"/g, '\\"')}" | secret-tool store --label="opencode-dir ${key}" opencode-dir ${key}`)
+                  api.ui.toast({ message: "Passphrase set" } as any)
+                }
+              } catch (e:any) { api.ui.toast({ message: `Keychain failed: ${String(e).slice(0,80)}` } as any) }
               api.ui.dialog.clear()
             }} onCancel={() => api.ui.dialog.clear()} />
           ))
