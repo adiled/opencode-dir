@@ -58,4 +58,4 @@ export const tui: TuiPlugin = async (api: any) => {
   log("info", "slots.register done")
 }
 
-export default { id: "opencode-dir", tui }
+export default { id: "opencode-dir-tui", tui }
