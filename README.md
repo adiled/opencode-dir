@@ -2,18 +2,15 @@
 
 Directory operations for [opencode](https://opencode.ai) sessions. Change directory, move sessions, and grant access to additional directories at runtime.
 
-When working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. This plugin adds `/cd`, `/mv`, `/add-dir`, and `/remove-dir` commands to manage directory context without restarting.
+In OpenCode, when working across monorepos or multiple repositories, sessions get stuck in the directory they were started in. **opencode-dir** plugin helps by unlocking multiple directory workflows, with special commands: `/cd`, `/mv`, `/add-dir`, `/remove-dir`.
+
+To encrypt certain directories, use `/vault init`, and give deliberate access using `/vault open`. 
+
+<center><img width="373" height="162" alt="Screenshot 2026-09-07 at 8 05 39 PM" src="https://github.com/user-attachments/assets/df0a907d-9da6-4e8d-b17f-60592b5ebce4" /></center>
 
 ## Setup
 
-Add to `opencode.json`:
-```json
-{
-  "plugin": ["opencode-dir"]
-}
-```
-
-Add to `tui.json` for the footer pill (optional but recommended):
+Add to `opencode.json` and `tui.json`:
 ```json
 {
   "plugin": ["opencode-dir"]
@@ -32,6 +29,8 @@ Change the session's working directory. Tools (`bash`, `glob`, `grep`, `read`, `
 
 Same as `/cd`, but also rewrites `path.cwd` and `path.root` in all existing assistant messages to point to the new directory. Use when you want the full conversation history to reflect the new location.
 
+**After moving,** the session is fully operational in the new directory. System prompt, tools, and permissions are all updated immediately. When you next open opencode from the target directory, the session will appear under that project's session list.
+
 ### `/add-dir <path>`
 
 Grant tool access to an additional directory without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package. Can be called multiple times to add several directories.
@@ -42,18 +41,13 @@ Revoke tool access to a directory previously granted via `/add-dir`. The session
 
 ### `/vault <init|open|close> <path>` (directories only)
 
-Encrypted at rest, session-scoped. `init` encrypts `<dir>` to `<dir>.age` and wipes plain. `open` decrypts to `/tmp/vault-<sessionID>` and grants that session `add-dir` access (WAL atomic). `close` re-encrypts if changed and wipes `/tmp`. Use `VAULT_PASS` env or default; key in OS keychain. Only that session can use the open vault; auto-close on session end/idle.
+Encrypt a directory using a passphrase, or env `OPENCODE_DIR_VAULT_PASS`. `init` to encrypt. `open` creates a temporary access for that session. Use `close` to revoke access on-demand.
 
 ```bash
 /vault init ~/secrets
 /vault open ~/secrets
-# agent works in /tmp/vault-<sessionID>
 /vault close ~/secrets
 ```
-
-## After moving
-
-The session is fully operational in the new directory. System prompt, tools, and permissions are all updated immediately. When you next open opencode from the target directory, the session will appear under that project's session list.
 
 ## License
 
