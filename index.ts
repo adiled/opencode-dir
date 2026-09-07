@@ -97,32 +97,13 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
   return {
     config: async (input) => {
+      const { commands } = await import("./lib.protocol.js");
       input.command ??= {};
-      input.command.cd = {
-        description: "Change session working directory",
-        template:
-          "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched.",
-      };
-      input.command.mv = {
-        description: "Move session and rewrite paths",
-        template:
-          "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location.",
-      };
-      input.command["add-dir"] = {
-        description: "Grant tool access to an additional directory",
-        template:
-          "Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package.",
-      };
-      input.command["remove-dir"] = {
-        description: "Revoke tool access to an additional directory",
-        template:
-          "Revoke tool access to $ARGUMENTS without changing the session's working directory.",
-      };
-      input.command.vault = {
-        description:
-          "Encrypted vault: init|open|close <dir> encrypts at rest, decrypts per session",
-        template: "User interacted with vault ($ARGUMENTS). No action needed",
-      };
+      for (const [name, info] of Object.entries(commands))
+        input.command[name] = {
+          description: info.description,
+          template: info.template,
+        };
     },
 
     "command.execute.before": async (input, output) => {
@@ -644,56 +625,29 @@ import { Effect } from "effect";
 const V2Effect = (ctx: any) =>
   Effect.gen(function* () {
     yield* Effect.log("opencode-dir V2 effect", { hasCommand: !!ctx.command });
+    const { commands } = yield* Effect.promise(() =>
+      import("./lib.protocol.js").then((m) => m.commands),
+    );
     const reg = yield* ctx.command.transform((draft: any) =>
       Effect.gen(function* () {
-        try { require("fs").appendFileSync("/tmp/opencode-dir-v2.log", `V2 draft keys=${Object.keys(draft).join(",")} hasAdd=${typeof (draft as any).add} hasUpdate=${typeof draft.update}\n`) } catch {}
         yield* Effect.log("opencode-dir V2 draft", {
           keys: Object.keys(draft),
           hasAdd: typeof (draft as any).add,
           hasUpdate: typeof draft.update,
         });
-        const cmds = {
-          cd: {
-            description: "Change session working directory",
-            template:
-              "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched.",
-          },
-          mv: {
-            description: "Move session and rewrite paths",
-            template:
-              "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location.",
-          },
-          "add-dir": {
-            description: "Grant tool access to an additional directory",
-            template:
-              "Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package.",
-          },
-          "remove-dir": {
-            description: "Revoke tool access to an additional directory",
-            template:
-              "Revoke tool access to $ARGUMENTS without changing the session's working directory.",
-          },
-          vault: {
-            description:
-              "Encrypted vault: init|open|close <dir> encrypts at rest, decrypts per session",
-            template:
-              "User interacted with vault ($ARGUMENTS). No action needed",
-          },
-        } as const;
-        for (const [name, info] of Object.entries(cmds)) {
-          if (typeof (draft as any).add === "function") (draft as any).add(name, info as any);
+        for (const [name, info] of Object.entries(commands as any)) {
+          if (typeof (draft as any).add === "function")
+            (draft as any).add(name, info as any);
           else if (typeof (draft as any).update === "function")
             (draft as any).update(name, (item: any) => {
-              item.description = info.description;
-              item.template = info.template;
+              item.description = (info as any).description;
+              item.template = (info as any).template;
             });
         }
-        try { require("fs").appendFileSync("/tmp/opencode-dir-v2.log", `V2 draft done\n`) } catch {}
       }),
     );
     yield* Effect.log("opencode-dir V2 transform done", { hasReg: !!reg });
-    try { require("fs").appendFileSync("/tmp/opencode-dir-v2.log", `V2 transform done hasReg=${!!reg}\n`) } catch {}
-  })
+  });
 export default {
   id: "opencode-dir",
   server: OpencodeDir,
