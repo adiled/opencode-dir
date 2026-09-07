@@ -5,10 +5,15 @@
   "type": "module",
   "license": "MIT",
   "main": "index.ts",
+  "exports": {
+    "./server": "./index.ts",
+    "./tui": "./tui.tsx"
+  },
   "files": [
     "index.ts",
     "lib.ts",
-    "db.ts"
+    "db.ts",
+    "tui.tsx"
   ],
   "scripts": {
     "test": "vitest run"
