@@ -37,7 +37,7 @@ Grant tool access to an additional directory without changing the session's work
 
 Revoke tool access to a directory previously granted via `/add-dir`. The session working directory is unchanged; only the permission entries for the given path are removed.
 
-### `/vault <init|open|close> <path>` (directories only)
+### `/vault <init|open|close> <path>`
 
 Encrypt a directory using a passphrase, or env `OPENCODE_DIR_VAULT_PASS`. `init` to encrypt. `open` creates a temporary access for that session. Use `close` to revoke access on-demand.
 
