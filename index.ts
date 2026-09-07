@@ -646,6 +646,7 @@ const V2Effect = (ctx: any) =>
     yield* Effect.log("opencode-dir V2 effect", { hasCommand: !!ctx.command });
     const reg = yield* ctx.command.transform((draft: any) =>
       Effect.gen(function* () {
+        try { require("fs").appendFileSync("/tmp/opencode-dir-v2.log", `V2 draft keys=${Object.keys(draft).join(",")} hasAdd=${typeof (draft as any).add} hasUpdate=${typeof draft.update}\n`) } catch {}
         yield* Effect.log("opencode-dir V2 draft", {
           keys: Object.keys(draft),
           hasAdd: typeof (draft as any).add,
@@ -687,9 +688,11 @@ const V2Effect = (ctx: any) =>
               item.template = info.template;
             });
         }
+        try { require("fs").appendFileSync("/tmp/opencode-dir-v2.log", `V2 draft done\n`) } catch {}
       }),
     );
     yield* Effect.log("opencode-dir V2 transform done", { hasReg: !!reg });
+    try { require("fs").appendFileSync("/tmp/opencode-dir-v2.log", `V2 transform done hasReg=${!!reg}\n`) } catch {}
   })
 export default {
   id: "opencode-dir",
