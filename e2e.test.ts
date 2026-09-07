@@ -154,7 +154,7 @@ async function apiSendMessage(sessionId: string, message: string): Promise<void>
 }
 
 function openDb(): Database {
-  return new Database(dbPath, { readonly: true })
+  return new Database(dbPath)
 }
 
 function readSession(sessionId: string) {
@@ -169,6 +169,7 @@ function readSession(sessionId: string) {
 // ── Server lifecycle ────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  process.env.OPENCODE_DIR_TEST = "1"
   // Ensure port is free before starting (prevents collisions from zombie servers)
   await assertPortFree(PORT)
 
@@ -195,21 +196,19 @@ beforeAll(async () => {
     env: GIT_ENV,
   })
 
-  // Launch server
-  serverProc = spawn(
-    "bun",
-    ["run", "--filter", "opencode", "dev", "--", "serve", "--port", String(PORT), "--pure"],
-    {
-      cwd: OPENCODE_SRC,
-      env: {
-        ...process.env,
-        XDG_DATA_HOME: DATA_DIR,
-        XDG_CONFIG_HOME: CONFIG_DIR,
-        HOME: SANDBOX,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+  // Launch server — use built opencode binary, not bun filter
+  const bin = process.env.OPENCODE_BIN || join(process.env.HOME ?? "", ".opencode/bin/opencode")
+  const cmd = existsSync(bin) ? bin : "opencode"
+  serverProc = spawn(cmd, ["serve", "--port", String(PORT), "--pure"], {
+    cwd: PROJECT_DIR,
+    env: {
+      ...process.env,
+      XDG_DATA_HOME: DATA_DIR,
+      XDG_CONFIG_HOME: CONFIG_DIR,
+      HOME: SANDBOX,
     },
-  )
+    stdio: ["ignore", "pipe", "pipe"],
+  })
 
   // Capture output for debugging
   let serverOutput = ""
