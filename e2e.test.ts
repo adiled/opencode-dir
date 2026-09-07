@@ -386,6 +386,39 @@ describe("e2e: /add-dir command against real server DB", () => {
   })
 })
 
+describe("e2e: /remove-dir command against real server DB", () => {
+  let sessionId: string
+  const extra = makePlainDir("remove-extra")
+  beforeAll(async () => { sessionId = await apiCreateSession(); execAddDir(sessionId, extra) })
+  it("removes added directory", async () => {
+    const { execRemoveDir } = await import("./lib")
+    const r = execRemoveDir(sessionId, extra)
+    expect(r.result).toContain("Removed")
+  })
+  it("permission removed", () => {
+    const { permissions } = readSession(sessionId)
+    const rule = (permissions as any)?.find((r: any) => r.pattern.includes(extra))
+    expect(rule).toBeUndefined()
+  })
+})
+
+describe("e2e: /vault against real server DB", () => {
+  let sessionId: string
+  beforeAll(async () => { sessionId = await apiCreateSession() })
+  it("vault init/open/close flow", async () => {
+    const dir = makePlainDir("vault-e2e")
+    const { writeFileSync } = await import("fs")
+    writeFileSync(join(dir, "secret.txt"), "hi")
+    const { vaultInit, vaultOpen, vaultClose } = await import("./lib.vault")
+    const init = vaultInit(dir, "pass123")
+    expect(init.ok).toBe(true)
+    const open = vaultOpen(new Database(process.env.OPENCODE_DB!), sessionId, dir, "pass123")
+    expect(open.ok).toBe(true)
+    const close = vaultClose(new Database(process.env.OPENCODE_DB!), sessionId, dir, "pass123")
+    expect(close.ok).toBe(true)
+  })
+})
+
 describe("e2e: error paths against real server DB", () => {
   let sessionId: string
 
