@@ -13,7 +13,14 @@ Add to `opencode.json`:
 }
 ```
 
-Restart opencode. The plugin auto-installs commands on first load.
+Add to `tui.json` for the footer pill (optional but recommended):
+```json
+{
+  "plugin": ["opencode-dir"]
+}
+```
+
+Restart opencode. The plugin auto-installs commands on first load. The TUI footer shows `parent/name:branch` + `• OpenCode` + `+N add-dir` stacked, live per session.
 
 ## Commands
 
@@ -32,6 +39,17 @@ Grant tool access to an additional directory without changing the session's work
 ### `/remove-dir <path>`
 
 Revoke tool access to a directory previously granted via `/add-dir`. The session working directory is unchanged; only the permission entries for the given path are removed.
+
+### `/vault <init|open|close> <path>` (directories only)
+
+Encrypted at rest, session-scoped. `init` encrypts `<dir>` to `<dir>.age` and wipes plain. `open` decrypts to `/tmp/vault-<sessionID>` and grants that session `add-dir` access (WAL atomic). `close` re-encrypts if changed and wipes `/tmp`. Use `VAULT_PASS` env or default; key in OS keychain. Only that session can use the open vault; auto-close on session end/idle.
+
+```bash
+/vault init ~/secrets
+/vault open ~/secrets
+# agent works in /tmp/vault-<sessionID>
+/vault close ~/secrets
+```
 
 ## After moving
 
