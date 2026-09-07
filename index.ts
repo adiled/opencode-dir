@@ -106,8 +106,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         template: "Revoke tool access to $ARGUMENTS without changing the session's working directory.",
       }
       input.command.vault = {
-        description: "Vault (user-only) init ~/secrets — init|open|close a directory (encrypted at rest, session-scoped decrypt).",
-        template: "Vault help (user slash only, do not auto-invoke): $ARGUMENTS — init|open|close <dir> encrypted at rest, session-scoped.",
+        description: "Vault init on a new directory. No action needed.",
+        template: "Vault init on a new directory. No action needed. $ARGUMENTS",
       }
     },
 
