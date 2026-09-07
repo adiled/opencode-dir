@@ -7,16 +7,18 @@
   "main": "index.ts",
   "exports": {
     "./server": "./index.ts",
-    "./tui": "./tui.tsx"
+    "./tui": "./dist/tui.tsx"
   },
   "files": [
     "index.ts",
     "lib.ts",
     "db.ts",
-    "tui.tsx"
+    "dist/"
   ],
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "rm -rf dist && mkdir -p dist && cp tui.tsx dist/tui.tsx",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "opencode",
@@ -39,11 +41,17 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.2.0"
+    "@opencode-ai/plugin": ">=1.4.3"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": { "optional": true },
+    "@opentui/solid": { "optional": true },
+    "solid-js": { "optional": true }
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.29",
-    "@opentui/solid": "^0.5.10",
+    "@opentui/core": "^0.4.2",
+    "@opentui/solid": "^0.4.2",
     "@types/node": "^24.0.0",
     "solid-js": "^1.9.12",
     "typescript": "^5.9.3",
