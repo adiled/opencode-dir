@@ -413,8 +413,11 @@ const V2Effect = (ctx: any) => Effect.gen(function* () {
   try { appendFileSync("/tmp/opencode-dir-v2.log", `V2 effect called ${new Date().toISOString()} command=${!!ctx.command} keys=${Object.keys(ctx).join(",")}\n`) } catch {}
   try {
     yield* ctx.command.transform((draft: any) => {
-      try { appendFileSync("/tmp/opencode-dir-v2.log", `transform draft keys=${Object.keys(draft).join(",")} hasUpdate=${typeof draft.update} listLen=${(() => { try{ return draft.list().length } catch{ return "err" } })()}\n`) } catch {}
-      try { appendFileSync("/tmp/opencode-dir-v2.log", `draft JSON ${JSON.stringify(Object.keys(draft))}\n`) } catch {}
+      try {
+        const keys = Object.keys(draft); const gkeys = Object.getOwnPropertyNames(draft); const hasUpdate = typeof draft.update; const hasAdd = typeof (draft as any).add; const hasList = typeof draft.list; const listLen = (()=>{ try{ return draft.list().length } catch(e:any){ return `err:${e?.message}` } })()
+        appendFileSync("/tmp/opencode-dir-v2.log", `transform draft keys=${keys.join(",")} gkeys=${gkeys.join(",")} hasUpdate=${hasUpdate} hasAdd=${hasAdd} hasList=${hasList} listLen=${listLen} proto=${Object.getPrototypeOf(draft)?.constructor?.name}\n`)
+        appendFileSync("/tmp/opencode-dir-v2.log", `draft JSON keys=${JSON.stringify(Object.keys(draft))} addType=${typeof (draft as any).add} updateType=${typeof draft.update}\n`)
+      } catch {}
       const cmds: Record<string, { description: string; template: string }> = {
         cd: { description: "Change session working directory", template: "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched." },
         mv: { description: "Move session and rewrite paths", template: "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location." },
@@ -423,16 +426,18 @@ const V2Effect = (ctx: any) => Effect.gen(function* () {
         vault: { description: "Encrypted vault: init|open|close <dir> encrypts at rest, decrypts per session", template: "User interacted with vault ($ARGUMENTS). No action needed" },
       }
       for (const [name, info] of Object.entries(cmds)) {
-        if (typeof draft.update === "function") {
-          draft.update(name, (item: any) => { item.description = info.description; item.template = info.template })
-        } else if (draft.commands instanceof Map) {
-          // fallback: draft is raw Data
-          const m = draft.commands as Map<string, any>
+        if (typeof (draft as any).update === "function") {
+          ;(draft as any).update(name, (item: any) => { item.description = info.description; item.template = info.template })
+          try { appendFileSync("/tmp/opencode-dir-v2.log", `update ${name} ok\n`) } catch {}
+        } else if (typeof (draft as any).add === "function") {
+          try { (draft as any).add(name, { description: info.description, template: info.template, name }); appendFileSync("/tmp/opencode-dir-v2.log", `add ${name} ok ${typeof (draft as any).add}\n`) } catch (e:any) { appendFileSync("/tmp/opencode-dir-v2.log", `add err ${name} ${e?.message} ${e?.stack?.slice(0,300)}\n`) }
+        } else if ((draft as any).commands instanceof Map) {
+          const m = (draft as any).commands as Map<string, any>
           const cur = m.get(name) ?? { name, template: "" }
           cur.description = info.description; cur.template = info.template; m.set(name, cur)
           try { appendFileSync("/tmp/opencode-dir-v2.log", `fallback Map set ${name}\n`) } catch {}
         } else {
-          try { appendFileSync("/tmp/opencode-dir-v2.log", `no update and no Map for ${name} draft=${JSON.stringify(draft)}\n`) } catch {}
+          try { appendFileSync("/tmp/opencode-dir-v2.log", `no update/add and no Map for ${name} draftKeys=${Object.keys(draft).join(",")} gkeys=${Object.getOwnPropertyNames(draft).join(",")} json=${JSON.stringify(draft).slice(0,500)}\n`) } catch {}
         }
       }
     })
