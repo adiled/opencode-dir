@@ -10,6 +10,8 @@ import {
   execAddDir,
   execRemoveDir,
   reportError,
+  reportUpdateError,
+  getVersion,
   getOpencodeVersion,
   meetsMinVersion,
   MIN_OPENCODE_VERSION,

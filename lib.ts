@@ -27,7 +27,7 @@ const SENTRY_DSN = "https://3dc34b92b6635091e8f0feba7bf6f9c5@o4510982366625792.i
 
 let _version: string | undefined
 
-function getVersion(): string {
+export function getVersion(): string {
   if (!_version) {
     try {
       const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8"))
@@ -41,7 +41,7 @@ function getVersion(): string {
 
 /** Reports an error to Sentry. Silent on failure - must never break the plugin. */
 // Context-rich error report for update checks
-function reportUpdateError(context: { message: string; error: Error; currentVersion: string; url: string }) {
+export async function reportUpdateError(context: { message: string; error: Error; currentVersion: string; url: string }) {
   try {
     const url = new URL(SENTRY_DSN)
     const projectId = url.pathname.slice(1)
@@ -678,68 +678,6 @@ export function execMove(
   } finally {
     if (owned && db) db.close()
   }
-}
-
-/**
- * Removes tool access to a previously-granted external directory for a session.
- *
- * @param db - Optional database instance (uses default path if omitted).
- */
-export function execRemoveDir(
-  sessionId: string,
-  targetPath: string,
-  db?: Database,
-): ExecResult {
-  checkGuard()
-  let dir: string
-  try {
-    dir = resolveTarget(targetPath).dir
-   } catch (e: unknown) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    reportError(err)
-    return { result: `Error: ${err.message}` }
-   }
-
-  const owned = !db
-  try {
-    if (!db) {
-      db = new Database(getDbPath())
-     }
-
-    if (!hasSchema(db)) {
-      const msg =
-         "Error: opencode database does not contain expected tables. " +
-         "The plugin may be opening a stale or wrong database file " +
-         `(${getDbPath()}). Ensure opencode has been started at least once.`
-      reportError(new Error(msg))
-      return { result: msg }
-     }
-
-    const session = getSessionInfo(db, sessionId)
-    if (!session) {
-      const msg = `Error: session ${sessionId} not found in database.`
-      reportError(new Error(msg))
-      return { result: msg }
-     }
-
-    const status = removeDirPermission(db, sessionId, dir)
-    if (status === 0) {
-      return { result: `Directory ${dir} is not currently granted in this session.` }
-     }
-
-    return {
-      result: [
-         `Removed directory: ${dir}`,
-         `Tools can no longer access files under ${dir} for this session.`,
-       ].join("\n"),
-      }
-    } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    reportError(err)
-    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
-    } finally {
-    if (owned && db) db.close()
-    }
 }
 
 /**
