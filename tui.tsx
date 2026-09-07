@@ -25,6 +25,19 @@ export function View(props: { api: TuiPluginApi; sessionID: string }) {
     const parts = text.split("/")
     return { parent: parts.slice(0, -1).join("/"), name: parts.at(-1) ?? "", dir }
   })
+  const vaults = createMemo(() => {
+    const s = props.api.state.session.get(props.sessionID) as any
+    const perms: any[] = s?.permission ?? s?.permissions ?? []
+    // map tmp vault path -> original dir via registry
+    let reg: Record<string,string> = {}
+    try { const fs = require("fs") as any; const p = (process.env.XDG_DATA_HOME || (process.env.HOME + "/.local/share")) + "/opencode/opencode-dir/vaults.json"; reg = JSON.parse(fs.readFileSync(p,"utf-8")) } catch {}
+    return perms
+      .filter((p: any) => p?.permission === "external_directory" || p?.action === "external_directory")
+      .map((p: any) => (p.pattern ?? p.resource ?? "") as string)
+      .map((d: string) => d.replace(/\/\*$/, ""))
+      .filter((d: string) => d.includes("vault-"))
+      .map((d: string) => reg[d] ? abbreviateHome(reg[d], home) : abbreviateHome(d, home))
+  })
   const extras = createMemo(() => {
     const s = props.api.state.session.get(props.sessionID) as any
     const perms: any[] = s?.permission ?? s?.permissions ?? []
@@ -33,13 +46,15 @@ export function View(props: { api: TuiPluginApi; sessionID: string }) {
       .filter((p: any) => p?.permission === "external_directory" || p?.action === "external_directory")
       .map((p: any) => (p.pattern ?? p.resource ?? "") as string)
       .map((d: string) => d.replace(/\/\*$/, ""))
-      .filter((d: string) => d && d !== primary)
+      .filter((d: string) => d && d !== primary && !d.includes("vault-"))
       .map((d: string) => abbreviateHome(d, home))
-    try { if (list.length) props.api.client.app.log({ body: { service: "opencode-dir-tui", level: "info", message: `extras ${list.join(",")}` } }).catch(()=>{}) } catch {}
     return list
   })
   return (
     <box gap={1}>
+      <Show when={vaults().length > 0}>
+        <text fg={theme().textMuted}>🔓 {vaults().join(", ")}</text>
+      </Show>
       <Show when={extras().length > 0}>
         <text fg={theme().textMuted}>+{String(extras().length)} add-dir: {extras().join(", ")}</text>
       </Show>

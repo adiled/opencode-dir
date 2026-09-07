@@ -6,7 +6,20 @@ import { Database } from "./db"
 import { appendDirPermission, removeDirPermission } from "./lib"
 
 export function getVaultTmp(sessionId: string): string {
-  return join(tmpdir(), `vault-${sessionId}`)
+  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const base = process.env.XDG_DATA_HOME || (home + "/.local/share")
+  return `${base}/opencode/opencode-dir/vault-${sessionId}`
+}
+function vaultRegistryPath(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const base = process.env.XDG_DATA_HOME || (home + "/.local/share")
+  return `${base}/opencode/opencode-dir/vaults.json`
+}
+function readRegistry(): Record<string, string> {
+  try { return JSON.parse(readFileSync(vaultRegistryPath(), "utf-8")) } catch { return {} }
+}
+function writeRegistry(map: Record<string, string>) {
+  try { mkdirSync(require("path").dirname(vaultRegistryPath()), { recursive: true }); writeFileSync(vaultRegistryPath(), JSON.stringify(map)) } catch {}
 }
 
 function deriveKey(pass: string): Buffer {
@@ -64,9 +77,9 @@ export function vaultOpen(db: Database, sessionId: string, dir: string, pass: st
   try {
     rmSync(tmp, { recursive: true, force: true })
     decryptDir(enc, pass, tmp)
-    // WAL txn via appendDirPermission
     const st = appendDirPermission(db, sessionId, tmp)
     if (st === 0) return { ok: false, error: "session not found" }
+    const reg = readRegistry(); reg[tmp] = abs; writeRegistry(reg)
     return { ok: true, tmp }
   } catch (e: any) {
     try { rmSync(tmp, { recursive: true, force: true }) } catch {}
@@ -80,11 +93,11 @@ export function vaultClose(db: Database, sessionId: string, dir: string, pass: s
   const tmp = getVaultTmp(sessionId)
   try {
     if (existsSync(tmp)) {
-      // re-encrypt if changed
       encryptDir(tmp, pass, enc)
       rmSync(tmp, { recursive: true, force: true })
     }
     removeDirPermission(db, sessionId, tmp)
+    const reg = readRegistry(); delete reg[tmp]; writeRegistry(reg)
     return { ok: true }
   } catch (e: any) { return { ok: false, error: e.message } }
 }
