@@ -48,8 +48,8 @@ describe("vault", () => {
     const res = vaultOpen(db, "ses_1", join(dir, "secrets"), "pass123")
     expect(res.ok).toBe(true)
     expect(existsSync(join(getVaultTmp("ses_1"), "api.env"))).toBe(true)
-    const row = db.query("SELECT resource FROM permission WHERE project_id='proj_1'").get() as any
-    expect(row.resource).toContain("vault-ses_1")
+    const row = db.query("SELECT resource FROM permission WHERE project_id='proj_1'").get() as { resource: string } | null
+    expect(row!.resource).toContain("vault-ses_1")
   })
 
   it("close wipes and removes permission", () => {
@@ -58,8 +58,8 @@ describe("vault", () => {
     const res = vaultClose(db, "ses_1", join(dir, "secrets"), "pass123")
     expect(res.ok).toBe(true)
     expect(existsSync(getVaultTmp("ses_1"))).toBe(false)
-    const cnt = db.query("SELECT count(*) as c FROM permission").get() as any
-    expect(cnt.c).toBe(0)
+    const cnt = db.query("SELECT count(*) as c FROM permission").get() as { c: number } | null
+    expect(cnt!.c).toBe(0)
   })
 
   it("open fails with wrong passphrase", () => {

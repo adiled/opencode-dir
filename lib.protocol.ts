@@ -7,7 +7,7 @@ export interface CommandProtocol {
   name: string;
   required: { table: string; columns: string[] }[];
   driftCheck(db: Database): DriftReport;
-  execute(db: Database, args: any): any;
+  execute(db: Database, args: unknown[]): unknown;
 }
 
 function check(
@@ -18,12 +18,12 @@ function check(
   for (const { table, columns } of required) {
     const row = db
       .query(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
-      .get(table) as any;
+      .get(table) as { name: string } | null;
     if (!row) {
       missing.push(`table:${table}`);
       continue;
     }
-    const cols = db.query(`PRAGMA table_info(${table})`).all() as any[];
+    const cols = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
     const names = new Set(cols.map((c) => c.name));
     for (const col of columns)
       if (!names.has(col)) missing.push(`${table}.${col}`);
@@ -108,8 +108,8 @@ export const registry: Record<string, CommandProtocol> = {
 export async function runWithDriftCheck(
   db: Database,
   proto: CommandProtocol,
-  toast: (msg: string) => Promise<void>,
-  fn: () => any,
+   toast: (msg: string) => Promise<void>,
+   fn: () => unknown,
 ) {
   const report = proto.driftCheck(db);
   if (!report.ok) {

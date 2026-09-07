@@ -469,7 +469,7 @@ export function ensureProject(db: Database, projectId: string, worktree: string)
 
 function hasPermissionTable(db: Database): boolean {
   try {
-    const row = db.query(`SELECT name FROM sqlite_master WHERE type='table' AND name='permission'`).get() as any
+    const row = db.query(`SELECT name FROM sqlite_master WHERE type='table' AND name='permission'`).get() as { name: string } | null
     return !!row
   } catch { return false }
 }
@@ -487,9 +487,9 @@ function hasPermissionTable(db: Database): boolean {
 export function updateSession(db: Database, sessionId: string, newDir: string, newProjectId: string): number {
   const existing = getSessionPermissions(db, sessionId)
   const pattern = newDir + "/*"
-  const already = existing.some(
-    (r: any) => r.permission === "external_directory" && r.pattern === pattern,
-  )
+const already = existing.some(
+      (r: { permission: string; pattern: string }) => r.permission === "external_directory" && r.pattern === pattern,
+    )
   if (!already) {
     existing.push({ permission: "external_directory", pattern, action: "allow" })
   }
@@ -652,7 +652,7 @@ export function removeDirPermission(db: Database, sessionId: string, dir: string
   const tx = db.transaction(() => {
     const existing = getSessionPermissions(db, sessionId)
     const filtered = existing.filter(
-      (r: any) => !(r.permission === "external_directory" && r.pattern === pattern),
+      (r: { permission: string; pattern: string }) => !(r.permission === "external_directory" && r.pattern === pattern),
     )
     legacyRemoved = existing.length - filtered.length
     if (legacyRemoved > 0) {
@@ -683,9 +683,9 @@ export function appendDirPermission(db: Database, sessionId: string, dir: string
   const hasPermTable = hasPermissionTable(db)
   const existing = getSessionPermissions(db, sessionId)
 
-  const alreadyLegacy = existing.some(
-    (r: any) => r.permission === "external_directory" && r.pattern === pattern,
-  )
+const alreadyLegacy = existing.some(
+      (r: { permission: string; pattern: string }) => r.permission === "external_directory" && r.pattern === pattern,
+    )
   let alreadySaved = false
   if (hasPermTable) {
     try {

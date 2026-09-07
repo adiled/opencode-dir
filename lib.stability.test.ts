@@ -20,16 +20,16 @@ function stubSession(db: Database, id: string, projectId: string, dir: string) {
 describe("stability: db pragmas", () => {
   it("sets WAL and busy_timeout", () => {
     // WAL only applies to file DBs; :memory: stays 'memory' — test file DB
-    const { mkdtempSync, rmSync } = require("fs") as any
-    const { join } = require("path") as any
-    const { tmpdir } = require("os") as any
+    const { mkdtempSync, rmSync } = require("fs") as typeof import("fs")
+    const { join } = require("path") as typeof import("path")
+    const { tmpdir } = require("os") as typeof import("os")
     const dir = mkdtempSync(join(tmpdir(), "ocd-wal-"))
     const file = join(dir, "test.db")
     const db = new Database(file)
-    const jm = db.query("PRAGMA journal_mode").get() as any
-    expect(jm.journal_mode).toBe("wal")
-    const bt = db.query("PRAGMA busy_timeout").get() as any
-    expect(bt.busy_timeout ?? bt.timeout ?? 5000).toBe(5000)
+    const jm = db.query("PRAGMA journal_mode").get() as { journal_mode: string } | null
+    expect(jm!.journal_mode).toBe("wal")
+    const bt = db.query("PRAGMA busy_timeout").get() as { busy_timeout?: number; timeout?: number } | null
+    expect(bt!.busy_timeout ?? bt!.timeout ?? 5000).toBe(5000)
     db.close()
     rmSync(dir, { recursive: true, force: true })
     // also ensure :memory: doesn't crash
@@ -43,8 +43,8 @@ describe("stability: db pragmas", () => {
     // simple tx should work
     const tx = db.transaction(() => { db.run("UPDATE session SET title='x' WHERE id='ses_1'") })
     tx()
-    const row = db.query("SELECT title FROM session WHERE id='ses_1'").get() as any
-    expect(row.title).toBe("x")
+    const row = db.query("SELECT title FROM session WHERE id='ses_1'").get() as { title: string } | null
+    expect(row!.title).toBe("x")
     db.close()
   })
 })
@@ -57,9 +57,9 @@ describe("stability: atomicity", () => {
     db.exec(`CREATE TRIGGER fail_perm BEFORE INSERT ON permission BEGIN SELECT RAISE(ABORT, 'boom'); END`)
     expect(() => updateSession(db, "ses_1", "/new", "proj_new")).toThrow()
     // session must NOT have been updated (rollback)
-    const row = db.query("SELECT directory, project_id FROM session WHERE id='ses_1'").get() as any
-    expect(row.directory).toBe("/old")
-    expect(row.project_id).toBe("proj_1")
+    const row = db.query("SELECT directory, project_id FROM session WHERE id='ses_1'").get() as { directory: string; project_id: string } | null
+    expect(row!.directory).toBe("/old")
+    expect(row!.project_id).toBe("proj_1")
     db.close()
   })
   it("appendDirPermission atomic rollback on failure", () => {
@@ -91,8 +91,8 @@ describe("stability: atomicity", () => {
     expect(removed).toBe(1)
     expect(getSessionPermissions(db, "ses_1")).toHaveLength(0)
     // permission table also cleared
-    const cnt = db.query("SELECT count(*) as c FROM permission WHERE project_id='proj_1'").get() as any
-    expect(cnt.c).toBe(0)
+    const cnt = db.query("SELECT count(*) as c FROM permission WHERE project_id='proj_1'").get() as { c: number } | null
+    expect(cnt!.c).toBe(0)
     db.close()
   })
 })

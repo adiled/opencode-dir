@@ -7,7 +7,7 @@ import { appendDirPermission, removeDirPermission } from "./lib"
 
 function keychainGet(key: string): string | null {
   try {
-    const { execSync } = require("child_process") as any
+    const { execSync } = require("child_process")
     if (process.platform === "darwin") {
       return execSync(`security find-generic-password -s "${key}" -w 2>/dev/null`, { encoding: "utf-8" }).trim() || null
     }
@@ -18,7 +18,7 @@ function keychainGet(key: string): string | null {
   return null
 }
 function keychainSet(key: string, val: string) {
-  const { execSync } = require("child_process") as any
+  const { execSync } = require("child_process")
   if (process.platform === "darwin") {
     execSync(`security delete-generic-password -s "${key}" 2>/dev/null || true`); execSync(`security add-generic-password -s "${key}" -a "${process.env.USER}" -w "${val.replace(/"/g, '\\"')}" 2>/dev/null`)
   } else if (process.platform === "linux") {
@@ -116,7 +116,7 @@ export function vaultInit(dir: string, pass: string): { ok: boolean; error?: str
     encryptDir(abs, pass, out)
     rmSync(abs, { recursive: true, force: true })
     return { ok: true }
-  } catch (e: any) { return { ok: false, error: e.message } }
+  } catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
 }
 
 export function vaultOpen(db: Database, sessionId: string, dir: string, pass: string): { ok: boolean; tmp?: string; error?: string } {
@@ -131,9 +131,9 @@ export function vaultOpen(db: Database, sessionId: string, dir: string, pass: st
     if (st === 0) return { ok: false, error: "session not found" }
     const reg = readRegistry(); reg[tmp] = abs; writeRegistry(reg)
     return { ok: true, tmp }
-  } catch (e: any) {
+  } catch (e: unknown) {
     try { rmSync(tmp, { recursive: true, force: true }) } catch {}
-    return { ok: false, error: e.message || "decrypt failed" }
+    return { ok: false, error: e instanceof Error ? e.message : "decrypt failed" }
   }
 }
 
@@ -149,5 +149,5 @@ export function vaultClose(db: Database, sessionId: string, dir: string, pass: s
     removeDirPermission(db, sessionId, tmp)
     const reg = readRegistry(); delete reg[tmp]; writeRegistry(reg)
     return { ok: true }
-  } catch (e: any) { return { ok: false, error: e.message } }
+  } catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
 }

@@ -1,6 +1,9 @@
 import { type Plugin } from "@opencode-ai/plugin";
-import { mkdirSync, appendFileSync } from "fs";
+import type { Plugin as PromisePlugin } from "@opencode-ai/plugin/v2/promise";
+import { commands } from "./lib.protocol";
+import { mkdirSync } from "fs";
 import { homedir } from "os";
+import { Effect } from "effect";
 import {
   type Override,
   type ExecResult,
@@ -26,18 +29,7 @@ import { Database } from "./db";
 
 const home = process.env.HOME || process.env.USERPROFILE || homedir();
 const STATE_DIR = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`;
-const LOG_FILE = `${STATE_DIR}/opencode-dir-debug.log`;
 const OVERRIDES_FILE = `${STATE_DIR}/opencode-dir-overrides.json`;
-const DEBUG = !!process.env.OPENCODE_DIR_DEBUG;
-
-function log(...args: unknown[]) {
-  if (!DEBUG) return;
-  const ts = new Date().toISOString();
-  const line = args
-    .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
-    .join(" ");
-  appendFileSync(LOG_FILE, `[${ts}] ${line}\n`);
-}
 
 const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE);
 
@@ -50,13 +42,19 @@ const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE);
 export const OpencodeDir: Plugin = async ({ client }) => {
   initPluginGuard();
   mkdirSync(STATE_DIR, { recursive: true });
-  log("plugin loaded", { overridesRecovered: dirOverrides.size });
+  Effect.runSync(
+    Effect.logInfo("opencode-dir plugin loaded", {
+      overridesRecovered: dirOverrides.size,
+    }),
+  );
 
   const ocVersion = getOpencodeVersion();
-  log("opencode version", {
-    version: ocVersion,
-    minimum: MIN_OPENCODE_VERSION,
-  });
+  Effect.runSync(
+    Effect.logInfo("opencode version", {
+      version: ocVersion,
+      minimum: MIN_OPENCODE_VERSION,
+    }),
+  );
   if (ocVersion && !meetsMinVersion(ocVersion, MIN_OPENCODE_VERSION)) {
     await client.tui
       .showToast({
@@ -72,7 +70,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
   // Non-blocking self-update check — purges cache if newer version exists
   const updateResult = await checkForUpdate();
-  log("update check", updateResult);
+  Effect.runSync(Effect.logInfo("opencode-dir update check", updateResult));
   if (updateResult.updated) {
     client.tui
       .showToast({
@@ -107,10 +105,12 @@ export const OpencodeDir: Plugin = async ({ client }) => {
     },
 
     "command.execute.before": async (input, output) => {
-      log("command.execute.before", {
-        command: input.command,
-        sessionID: input.sessionID,
-      });
+      Effect.runSync(
+        Effect.logInfo("opencode-dir command.execute.before", {
+          command: input.command,
+          sessionID: input.sessionID,
+        }),
+      );
       // per-command protocol drift check
       try {
         const { registry, runWithDriftCheck } =
@@ -481,11 +481,13 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       }
 
       if (exec.oldDir && exec.newDir) {
-        log("storing override", {
-          sessionID: input.sessionID,
-          oldDir: exec.oldDir,
-          newDir: exec.newDir,
-        });
+        Effect.runSync(
+          Effect.logInfo("opencode-dir storing override", {
+            sessionID: input.sessionID,
+            oldDir: exec.oldDir,
+            newDir: exec.newDir,
+          }),
+        );
         dirOverrides.set(input.sessionID, {
           oldDir: exec.oldDir,
           newDir: exec.newDir,
@@ -538,10 +540,12 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       try {
         const override = dirOverrides.get(input.sessionID);
         if (!override) return;
-        log("tool.execute.before", {
-          tool: input.tool,
-          sessionID: input.sessionID,
-        });
+        Effect.runSync(
+          Effect.logInfo("opencode-dir tool.execute.before", {
+            tool: input.tool,
+            sessionID: input.sessionID,
+          }),
+        );
 
         const { newDir } = override;
 
@@ -582,8 +586,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           try {
             const db = new Database(getDbPath());
             try {
-              const info = getSessionInfo(db as any, sid);
-              const perms = getSessionPermissions(db as any, sid) as any[];
+              const info = getSessionInfo(db, sid);
+              const perms = getSessionPermissions(db, sid) as Array<{ permission: string; pattern: string }>;
               const dirs = perms
                 .filter((r) => r.permission === "external_directory")
                 .map((r) => r.pattern.replace(/\/\*$/, ""));
@@ -621,37 +625,22 @@ export const OpencodeDir: Plugin = async ({ client }) => {
   };
 };
 
-import { Effect } from "effect";
-const V2Effect = (ctx: any) =>
-  Effect.gen(function* () {
-    yield* Effect.log("opencode-dir V2 effect", { hasCommand: !!ctx.command });
-    const { commands } = yield* Effect.promise(() =>
-      import("./lib.protocol.js").then((m) => m.commands),
-    );
-    const reg = yield* ctx.command.transform((draft: any) =>
-      Effect.gen(function* () {
-        yield* Effect.log("opencode-dir V2 draft", {
-          keys: Object.keys(draft),
-          hasAdd: typeof (draft as any).add,
-          hasUpdate: typeof draft.update,
-        });
-        for (const [name, info] of Object.entries(commands as any)) {
-          if (typeof (draft as any).add === "function")
-            (draft as any).add(name, info as any);
-          else if (typeof (draft as any).update === "function")
-            (draft as any).update(name, (item: any) => {
-              item.description = (info as any).description;
-              item.template = (info as any).template;
-            });
-        }
-      }),
-    );
-    yield* Effect.log("opencode-dir V2 transform done", { hasReg: !!reg });
+// V2 (promise variant): host adapts this with its own Effect runtime,
+// so no Effect import is used here — avoids cross-copy context crash.
+type RuntimeCommandDraft = {
+  add: (name: string, info: { template: string; description: string }) => void;
+};
+const V2Setup: PromisePlugin["setup"] = async (ctx) => {
+  await ctx.command.transform((draft) => {
+    const runtime = draft as unknown as RuntimeCommandDraft;
+    for (const [name, info] of Object.entries(commands)) {
+      runtime.add(name, { template: info.template, description: info.description });
+    }
   });
+  Effect.runSync(Effect.log("opencode-dir V2 commands registered", Object.keys(commands)));
+};
 export default {
   id: "opencode-dir",
   server: OpencodeDir,
-  // V2 compatibility: opencode2 validates id + effect/setup
-  effect: V2Effect,
-  setup: V2Effect,
-} as any;
+  setup: V2Setup,
+};

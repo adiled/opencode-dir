@@ -189,7 +189,7 @@ describe("ensureProject", () => {
   it("creates a project row", () => {
     const db = createTestDb()
     ensureProject(db, "proj_1", "/work")
-    const row = db.query("SELECT id, worktree FROM project WHERE id = ?").get("proj_1") as any
+    const row = db.query("SELECT id, worktree FROM project WHERE id = ?").get("proj_1") as { id: string; worktree: string } | null
     expect(row.id).toBe("proj_1")
     expect(row.worktree).toBe("/work")
     db.close()
@@ -200,7 +200,7 @@ describe("ensureProject", () => {
     stubSession(db, "ses_1", "proj_1", "/work")
     ensureProject(db, "proj_1", "/work")
     ensureProject(db, "proj_1", "/work")
-    const count = db.query("SELECT count(*) as c FROM project WHERE id = ?").get("proj_1") as any
+    const count = db.query("SELECT count(*) as c FROM project WHERE id = ?").get("proj_1") as Record<string, unknown>
     expect(count.c).toBe(1)
     db.close()
   })
@@ -214,7 +214,7 @@ describe("updateSession", () => {
     const changes = updateSession(db, "ses_1", "/new", "proj_new")
     expect(changes).toBe(1)
 
-    const row = db.query("SELECT directory, project_id, permission FROM session WHERE id = ?").get("ses_1") as any
+    const row = db.query("SELECT directory, project_id, permission FROM session WHERE id = ?").get("ses_1") as Record<string, unknown>
     expect(row.directory).toBe("/new")
     expect(row.project_id).toBe("proj_new")
 
@@ -332,7 +332,7 @@ describe("execMove", () => {
     const session = getSessionInfo(db, "ses_1")!
     expect(session.directory).toBe(repo)
     expect(session.projectId).toBe(projectId)
-    const msg = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as any
+    const msg = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as Record<string, unknown>
     expect(JSON.parse(msg.data).path.cwd).toBe("/old") // unchanged
   })
 
@@ -343,7 +343,7 @@ describe("execMove", () => {
     const result = execMove("ses_1", repo, true, db)
     expect(result.result).toContain("Session moved")
     expect(result.result).toContain("rewritten")
-    const msg = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as any
+    const msg = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as Record<string, unknown>
     expect(JSON.parse(msg.data).path.cwd).toBe(repo)
   })
 
@@ -377,7 +377,7 @@ describe("execMove", () => {
 
     execMove("ses_1", repo, false, db)
 
-    const row = db.query("SELECT permission FROM session WHERE id = ?").get("ses_1") as any
+    const row = db.query("SELECT permission FROM session WHERE id = ?").get("ses_1") as Record<string, unknown>
     const perm = JSON.parse(row.permission)
     expect(perm[0].permission).toBe("external_directory")
     expect(perm[0].pattern).toBe(repo + "/*")
@@ -389,7 +389,7 @@ describe("execMove", () => {
 
     execMove("ses_1", repo, false, db)
 
-    const row = db.query("SELECT id, worktree FROM project WHERE id = ?").get(projectId) as any
+    const row = db.query("SELECT id, worktree FROM project WHERE id = ?").get(projectId) as Record<string, unknown>
     expect(row).toBeTruthy()
     expect(row.worktree).toBe(repo)
   })
@@ -688,7 +688,7 @@ describe("removeDirPermission", () => {
 
     const perms = getSessionPermissions(db, "ses_1")
     expect(perms).toHaveLength(2)
-    expect(perms.map((p: any) => p.pattern)).toEqual(["/a/*", "/c/*"])
+    expect(perms.map((p: { pattern: string }) => p.pattern)).toEqual(["/a/*", "/c/*"])
     db.close()
   })
 })

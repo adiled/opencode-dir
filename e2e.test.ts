@@ -136,7 +136,7 @@ async function apiCreateSession(): Promise<string> {
   return data.id
 }
 
-async function apiGetSession(id: string): Promise<any> {
+async function apiGetSession(id: string): Promise<{ id: string; directory: string }> {
   const res = await fetch(`${SERVER_URL}/session/${id}`)
   if (!res.ok) throw new Error(`Failed to get session: ${res.status}`)
   return res.json()
@@ -304,11 +304,11 @@ describe("e2e: /cd command against real server DB", () => {
   it("permission rule was written for the target directory", () => {
     const { permissions } = readSession(sessionId)
     expect(permissions).toBeInstanceOf(Array)
-    const rule = permissions!.find(
-      (r: any) => r.permission === "external_directory" && r.pattern.includes(repoB),
+    const rule = (permissions as Array<{ permission: string; pattern: string; action: string }>).find(
+      (r) => r.permission === "external_directory" && r.pattern.includes(repoB),
     )
     expect(rule).toBeDefined()
-    expect(rule.action).toBe("allow")
+    expect(rule!.action).toBe("allow")
   })
 
   it("API still returns the session after plugin modification", async () => {
@@ -362,11 +362,11 @@ describe("e2e: /add-dir command against real server DB", () => {
 
   it("permission rule written for added directory", () => {
     const { permissions } = readSession(sessionId)
-    const rule = permissions!.find(
-      (r: any) => r.permission === "external_directory" && r.pattern.includes(extraDir),
+    const rule = (permissions as Array<{ permission: string; pattern: string; action: string }>).find(
+      (r) => r.permission === "external_directory" && r.pattern.includes(extraDir),
     )
     expect(rule).toBeDefined()
-    expect(rule.action).toBe("allow")
+    expect(rule!.action).toBe("allow")
   })
 
   it("rejects duplicate directory", () => {
@@ -379,9 +379,9 @@ describe("e2e: /add-dir command against real server DB", () => {
     expect(result.result).toContain("Added directory")
 
     const { permissions } = readSession(sessionId)
-    const dirs = permissions!
-      .filter((r: any) => r.permission === "external_directory")
-      .map((r: any) => r.pattern)
+    const dirs = (permissions as Array<{ permission: string; pattern: string }>)
+      .filter((r) => r.permission === "external_directory")
+      .map((r) => r.pattern)
     expect(dirs.length).toBeGreaterThanOrEqual(2)
   })
 })
@@ -397,7 +397,7 @@ describe("e2e: /remove-dir command against real server DB", () => {
   })
   it("permission removed", () => {
     const { permissions } = readSession(sessionId)
-    const rule = (permissions as any)?.find((r: any) => r.pattern.includes(extra))
+    const rule = (permissions as Array<{ pattern: string }>).find((r) => r.pattern.includes(extra))
     expect(rule).toBeUndefined()
   })
 })
