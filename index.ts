@@ -117,7 +117,20 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         const raw = input.arguments.trim()
         const [sub, ...rest] = raw.split(/\s+/)
         const target = rest.join(" ").trim()
-        const pass = process.env.VAULT_PASS || "default-pass"
+        const { getVaultPass, needVaultPassFile } = await import("./lib.vault.js")
+        // /vault init with no dir = set/change passphrase (even if env set)
+        if (sub === "init" && !target) {
+          try { const { writeFileSync, mkdirSync } = await import("fs"); const { dirname } = await import("path"); const f = needVaultPassFile(input.sessionID); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, "init") } catch {}
+          output.parts = [{ type: "text", id: "prt_"+Date.now(), sessionID: input.sessionID, messageID: "msg_"+Date.now(), text: "Vault init — enter passphrase in dialog." }]
+          await client.tui.showToast({ body: { title: "Vault passphrase", message: "Enter new passphrase", variant: "info", duration: 6000 } }).catch(()=>{})
+          return
+        }
+        let pass = getVaultPass(input.sessionID)
+        if (!pass) {
+          output.parts = [{ type: "text", id: "prt_"+Date.now(), sessionID: input.sessionID, messageID: "msg_"+Date.now(), text: `Vault ${sub} failed: no passphrase set. Run /vault init to set one or set OPENCODE_DIR_VAULT_PASS.` }]
+          await client.tui.showToast({ body: { title: "Vault failed", message: "No passphrase — run /vault init", variant: "error", duration: 8000 } }).catch(()=>{})
+          return
+        }
         // prompt for passphrase via tui if not env
         if (!target && sub !== "list") {
           await client.tui.showToast({ body: { title: "Usage", message: "/vault init|open|close <dir>", variant: "info", duration: 5000 } }).catch(()=>{})

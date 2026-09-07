@@ -1,9 +1,27 @@
 import { existsSync, statSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from "fs"
-import { join, resolve } from "path"
+import { join, resolve, dirname } from "path"
 import { tmpdir } from "os"
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto"
 import { Database } from "./db"
 import { appendDirPermission, removeDirPermission } from "./lib"
+
+export function getVaultPassFile(sessionId: string): string {
+  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const base = process.env.XDG_DATA_HOME || (home + "/.local/share")
+  return `${base}/opencode/opencode-dir/vault-pass-${sessionId}`
+}
+export function getVaultPass(sessionId?: string): string | null {
+  if (sessionId) {
+    try { const p = readFileSync(getVaultPassFile(sessionId), "utf-8").trim(); if (p) return p } catch {}
+  }
+  if (process.env.OPENCODE_DIR_VAULT_PASS) return process.env.OPENCODE_DIR_VAULT_PASS
+  return null
+}
+export function needVaultPassFile(sessionId: string): string {
+  const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
+  const base = process.env.XDG_DATA_HOME || (home + "/.local/share")
+  return `${base}/opencode/opencode-dir/vault-need-${sessionId}`
+}
 
 export function getVaultTmp(sessionId: string): string {
   const home = process.env.HOME || process.env.USERPROFILE || require("os").homedir()
