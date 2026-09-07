@@ -26,6 +26,9 @@ export class Database {
   constructor(path: string) {
     this.db = new DatabaseImpl(path)
     try { this.db.exec("PRAGMA foreign_keys = OFF") } catch {}
+    try { this.db.exec("PRAGMA journal_mode = WAL") } catch {}
+    try { this.db.exec("PRAGMA busy_timeout = 5000") } catch {}
+    try { this.db.exec("PRAGMA synchronous = NORMAL") } catch {}
   }
   exec(sql: string) {
     this.db.exec(sql)
@@ -47,7 +50,7 @@ export class Database {
   }
   transaction(fn: () => void) {
     return () => {
-      this.db.exec("BEGIN")
+      this.db.exec("BEGIN IMMEDIATE")
       try {
         fn()
         this.db.exec("COMMIT")
@@ -56,6 +59,9 @@ export class Database {
         throw e
       }
     }
+  }
+  transactionImmediate(fn: () => void) {
+    return this.transaction(fn)
   }
   close() {
     this.db.close()

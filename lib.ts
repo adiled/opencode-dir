@@ -423,6 +423,13 @@ export function ensureProject(db: Database, projectId: string, worktree: string)
   )
 }
 
+function hasPermissionTable(db: Database): boolean {
+  try {
+    const row = db.query(`SELECT name FROM sqlite_master WHERE type='table' AND name='permission'`).get() as any
+    return !!row
+  } catch { return false }
+}
+
 /**
  * Updates a session's directory, project, and permission in one statement.
  *
@@ -431,6 +438,7 @@ export function ensureProject(db: Database, projectId: string, worktree: string)
  * Preserves existing permission rules (e.g. from prior /cd, /mv, /add-dir).
  * `prompt()` loads the session AFTER `command.execute.before` fires,
  * so the rule is available when tools run.
+ * Atomic: session + permission table in one BEGIN IMMEDIATE.
  */
 export function updateSession(db: Database, sessionId: string, newDir: string, newProjectId: string): number {
   const existing = getSessionPermissions(db, sessionId)
@@ -442,13 +450,14 @@ export function updateSession(db: Database, sessionId: string, newDir: string, n
     existing.push({ permission: "external_directory", pattern, action: "allow" })
   }
   const permission = JSON.stringify(existing)
-  const changes = db.run(
-    `UPDATE session SET directory = ?, project_id = ?, permission = ?, time_updated = ? WHERE id = ?`,
-    [newDir, newProjectId, permission, Date.now(), sessionId],
-  ).changes
-  // Also ensure permission table entry for new project (PermissionV2) - only if session updated
-  if (changes > 0) {
-    try {
+  const hasPermTable = hasPermissionTable(db)
+  let changes = 0
+  const tx = db.transaction(() => {
+    changes = db.run(
+      `UPDATE session SET directory = ?, project_id = ?, permission = ?, time_updated = ? WHERE id = ?`,
+      [newDir, newProjectId, permission, Date.now(), sessionId],
+    ).changes
+    if (changes > 0 && hasPermTable) {
       const row = db
         .query(`SELECT id FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`)
         .get(newProjectId, pattern) as { id: string } | null
@@ -460,8 +469,9 @@ export function updateSession(db: Database, sessionId: string, newDir: string, n
           [id, newProjectId, pattern, now, now],
         )
       }
-    } catch {}
-  }
+    }
+  })
+  tx()
   return changes
 }
 
@@ -578,50 +588,53 @@ export function getSessionPermissions(db: Database, sessionId: string): unknown[
 /**
  * Removes (un-grants) an external_directory permission for a session.
  * Handles both legacy session.permission JSON and new permission table (PermissionSaved).
+ * Atomic: both tables in one BEGIN IMMEDIATE.
  */
 export function removeDirPermission(db: Database, sessionId: string, dir: string): number {
   const pattern = dir + "/*"
   const info = getSessionInfo(db, sessionId)
-  // Legacy: remove from session.permission JSON
-  const existing = getSessionPermissions(db, sessionId)
-  const filtered = existing.filter(
-    (r: any) => !(r.permission === "external_directory" && r.pattern === pattern),
-  )
-  const legacyRemoved = existing.length - filtered.length
-  if (legacyRemoved > 0) {
-    db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
-      JSON.stringify(filtered),
-      Date.now(),
-      sessionId,
-    ])
-  }
-  // New: remove from permission table (PermissionV2)
+  const hasPermTable = hasPermissionTable(db)
+  let legacyRemoved = 0
   let savedRemoved = 0
-  if (info) {
-    try {
+  const tx = db.transaction(() => {
+    const existing = getSessionPermissions(db, sessionId)
+    const filtered = existing.filter(
+      (r: any) => !(r.permission === "external_directory" && r.pattern === pattern),
+    )
+    legacyRemoved = existing.length - filtered.length
+    if (legacyRemoved > 0) {
+      db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
+        JSON.stringify(filtered),
+        Date.now(),
+        sessionId,
+      ])
+    }
+    if (info && hasPermTable) {
       const res = db.run(
         `DELETE FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`,
         [info.projectId, pattern],
       )
       savedRemoved = res.changes
-    } catch {}
-  }
+    }
+  })
+  tx()
   const totalRemoved = Math.max(legacyRemoved, savedRemoved)
   return totalRemoved > 0 ? totalRemoved : 0
 }
 
-/** Appends an external_directory permission without touching directory or project. Handles both legacy and new tables. */
+/** Appends an external_directory permission without touching directory or project. Handles both legacy and new tables. Atomic. */
 export function appendDirPermission(db: Database, sessionId: string, dir: string): number {
   const pattern = dir + "/*"
   const info = getSessionInfo(db, sessionId)
   if (!info) return 0
+  const hasPermTable = hasPermissionTable(db)
   const existing = getSessionPermissions(db, sessionId)
 
   const alreadyLegacy = existing.some(
     (r: any) => r.permission === "external_directory" && r.pattern === pattern,
   )
   let alreadySaved = false
-  if (info) {
+  if (hasPermTable) {
     try {
       const row = db
         .query(`SELECT id FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`)
@@ -630,46 +643,49 @@ export function appendDirPermission(db: Database, sessionId: string, dir: string
     } catch {}
   }
   if (alreadyLegacy && alreadySaved) return -1
-  // If either is duplicate, treat as duplicate to avoid partial writes
   if (alreadyLegacy || alreadySaved) {
-    // Ensure both are present for consistency
-    if (!alreadyLegacy) {
-      existing.push({ permission: "external_directory", pattern, action: "allow" })
-      db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
-        JSON.stringify(existing),
-        Date.now(),
-        sessionId,
-      ])
-    }
-    if (!alreadySaved && info) {
-      try {
+    // Repair missing side atomically, still duplicate
+    const tx = db.transaction(() => {
+      if (!alreadyLegacy) {
+        existing.push({ permission: "external_directory", pattern, action: "allow" })
+        db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
+          JSON.stringify(existing),
+          Date.now(),
+          sessionId,
+        ])
+      }
+      if (!alreadySaved && hasPermTable) {
         const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
         const now = Date.now()
         db.run(
           `INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)`,
           [id, info.projectId, pattern, now, now],
         )
-      } catch {}
-    }
+      }
+    })
+    tx()
     return -1
   }
 
-  existing.push({ permission: "external_directory", pattern, action: "allow" })
-  const changes = db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
-    JSON.stringify(existing),
-    Date.now(),
-    sessionId,
-  ]).changes
-  if (changes === 0) return 0
-  try {
-    const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
-    const now = Date.now()
-    db.run(
-      `INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)`,
-      [id, info.projectId, pattern, now, now],
-    )
-  } catch {}
-  return changes
+  let changes = 0
+  const tx = db.transaction(() => {
+    existing.push({ permission: "external_directory", pattern, action: "allow" })
+    changes = db.run(`UPDATE session SET permission = ?, time_updated = ? WHERE id = ?`, [
+      JSON.stringify(existing),
+      Date.now(),
+      sessionId,
+    ]).changes
+    if (changes > 0 && hasPermTable) {
+      const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
+      const now = Date.now()
+      db.run(
+        `INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)`,
+        [id, info.projectId, pattern, now, now],
+      )
+    }
+  })
+  tx()
+  return changes === 0 ? 0 : changes
 }
 
 export interface ExecResult {
