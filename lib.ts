@@ -40,6 +40,54 @@ function getVersion(): string {
 }
 
 /** Reports an error to Sentry. Silent on failure - must never break the plugin. */
+// Context-rich error report for update checks
+function reportUpdateError(context: { message: string; error: Error; currentVersion: string; url: string }) {
+  try {
+    const url = new URL(SENTRY_DSN)
+    const projectId = url.pathname.slice(1)
+    const publicKey = url.username
+    const endpoint = `https://${url.host}/api/${projectId}/envelope/`
+
+    const header = JSON.stringify({
+      event_id: crypto.randomUUID().replace(/-/g, ""),
+      dsn: SENTRY_DSN,
+      sent_at: new Date().toISOString(),
+    })
+    const item = JSON.stringify({ type: "event" })
+    const payload = JSON.stringify({
+      exception: {
+        values: [{
+          type: context.error.name,
+          value: context.error.message,
+          stacktrace: {
+            frames: (context.error.stack ?? "").split("\n").slice(1).map((line) => ({
+              filename: line.trim(),
+            })),
+          },
+        }],
+      },
+      release: `opencode-dir@${context.currentVersion}`,
+      platform: "node",
+      environment: "production",
+      tags: {
+        check_type: "update",
+        url: context.url,
+      },
+    })
+
+    await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-sentry-envelope",
+        "X-Sentry-Auth": `Sentry sentry_key=${publicKey}, sentry_version=7`,
+      },
+      body: `${header}\n${item}\n${payload}`,
+    })
+  } catch {
+    // Silent - telemetry must never break the plugin
+  }
+}
+
 export async function reportError(err: Error) {
   try {
     const url = new URL(SENTRY_DSN)
