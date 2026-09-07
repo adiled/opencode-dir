@@ -4,11 +4,23 @@ import type { TuiPlugin } from "@opencode-ai/plugin/tui"
 import { createMemo } from "solid-js"
 
 function View(props: { api: any; sessionID: string }) {
-  const theme = () => props.api.theme.current
+  const theme = () => {
+    try { return props.api.theme.current } catch (e) { return { text: "#fff", textMuted: "#888", success: "#0f0" } as any }
+  }
   const primary = createMemo(() => {
-    const s = props.api.state.session.get(props.sessionID) as any
-    return s?.directory ?? props.api.state.path.directory ?? "?"
+    try {
+      const s = props.api.state.session.get(props.sessionID) as any
+      const dir = s?.directory ?? props.api.state.path.directory ?? "?"
+      try { props.api.client?.app?.log?.({ body: { service: "opencode-dir-tui", level: "info", message: `View memo sid=${props.sessionID} dir=${dir} sess=${s ? JSON.stringify(s).slice(0,400) : "null"}` } })?.catch?.(() => {}) } catch {}
+      return dir
+    } catch (e) {
+      try { props.api.client?.app?.log?.({ body: { service: "opencode-dir-tui", level: "error", message: `View memo err=${String(e)}` } })?.catch?.(() => {}) } catch {}
+      return "?"
+    }
   })
+
+  try { props.api.client?.app?.log?.({ body: { service: "opencode-dir-tui", level: "info", message: `View render sid=${props.sessionID} primary=${primary()} ver=${props.api.app.version}` } })?.catch?.(() => {}) } catch {}
+  try { console.log(`[opencode-dir tui] View render sid=${props.sessionID}`) } catch {}
 
   return (
     <box flexDirection="column" gap={1} paddingLeft={1} paddingRight={1}>
@@ -37,17 +49,35 @@ export const tui: TuiPlugin = async (api: any) => {
     } catch {}
   }
 
-  log("info", "tui load id=opencode-dir")
-  api.slots.register({
-    order: 101,
-    slots: {
-      sidebar_footer(_ctx: any, props: { session_id: string }) {
-        try { log("info", `sidebar_footer render sid=${props.session_id}`) } catch (e) { report(e) }
-        try { return <View api={api} sessionID={props.session_id} /> } catch (e) { log("error", `View failed: ${e}`); report(e); return null as any }
+  try {
+    log("info", `tui load id=opencode-dir ver=${api.app?.version} order=101`)
+    log("info", `api keys=${Object.keys(api || {}).join(",")}`)
+    log("info", `state keys=${Object.keys(api.state || {}).join(",")} path=${JSON.stringify(api.state?.path || {}).slice(0,300)} sessions=${(api.state?.session as any)?.size ?? "?"}`)
+    log("info", `theme=${JSON.stringify(api.theme?.current || {}).slice(0,300)}`)
+    log("info", `tuiConfig=${JSON.stringify((api as any).tuiConfig || {}).slice(0,300)}`)
+  } catch (e) { log("warn", `pre-log err ${String(e)}`); report(e) }
+
+  try {
+    api.slots.register({
+      id: "opencode-dir",
+      order: 101,
+      slots: {
+        sidebar_footer(_ctx: any, props: { session_id: string }) {
+          log("info", `sidebar_footer render sid=${props.session_id}`)
+          try {
+            const el = <View api={api} sessionID={props.session_id} />
+            log("info", `sidebar_footer View created sid=${props.session_id}`)
+            return el
+          } catch (e) { log("error", `View failed: ${String(e)} ${(e as any)?.stack?.slice(0,500)}`); report(e); return null as any }
+        },
       },
-    },
-  })
-  log("info", "slots.register done order 101")
+    })
+    log("info", "slots.register done id=opencode-dir order 101 sidebar_footer")
+  } catch (e) {
+    log("error", `slots.register failed ${String(e)} ${(e as any)?.stack?.slice(0,800)}`)
+    await report(e)
+    throw e
+  }
 }
 
 export default { id: "opencode-dir", tui }
