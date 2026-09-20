@@ -573,15 +573,6 @@ export function updateSession(
   return changes
 }
 
-/**
- * Returns true when the session has an assistant message that is currently
- * generating (role `assistant`, `time.created` set, no `time.completed`).
- *
- * This is the same signal opencode's in-memory runner uses to mark a session
- * busy, seen from the database side. Moving or rewriting the session row
- * while a turn is in flight mutates the row underneath the active runLoop and
- * causes the desync observed in issue #28 (twin generations, token tsunami).
- */
 export function isGenerating(db: Database, sessionId: string): boolean {
   const rows = db
     .query("SELECT data FROM message WHERE session_id = ?")
@@ -600,14 +591,7 @@ export function isGenerating(db: Database, sessionId: string): boolean {
   return false
 }
 
-/**
- * Rewrites `path.cwd` and `path.root` in message data from `oldDir` to
- * `newDir`. Runs inside a transaction for atomicity.
- *
- * Messages that are still streaming (assistant turn without
- * `time.completed`) are SKIPPED: rewriting the active turn's path underneath
- * the running stream is undefined behavior and a live-move desync trigger.
- */
+
 export function rewriteMessages(
   db: Database,
   sessionId: string,
@@ -885,11 +869,6 @@ export function execMove(
       return { result: `Already in ${dir} - no change needed.` }
     }
 
-    // Refuse to move a session whose turn is still generating. Rewriting the
-    // session row underneath opencode's active runLoop desyncs the runner's
-    // in-memory state from the database (issue #28: overlapping/twin assistant
-    // generations, "token tsunami"). The in-flight turn is also the only one
-    // whose row cannot be safely rewritten.
     if (isGenerating(db, sessionId)) {
       const msg =
         "Session is currently generating a response - refusing to move it mid-turn.\n" +

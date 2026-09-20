@@ -328,12 +328,6 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       }
 
       if (input.command === "cd" || input.command === "mv" || input.command === "add-dir") {
-        // Stop the in-flight turn before landing a directory/permission change.
-        // opencode snapshots the ask ruleset once per run loop (session is
-        // read at loop start), so a mid-turn change would only apply to the
-        // next response — and mutating the session row under a live stream is
-        // the issue-#28 desync. Interrupt first (like Esc), wait for the turn
-        // to settle, then apply so the very next response sees the new state.
         const settleDb = new Database(getDbPath());
         try {
           if (isGenerating(settleDb, input.sessionID)) {
