@@ -72,23 +72,19 @@ export const commands: Record<
 > = {
   cd: {
     description: "Change session working directory",
-    template:
-      "Change the session's working directory to $ARGUMENTS. Tools will operate in the new directory immediately. Message history is left untouched.",
+    template: "Working directory changed to $ARGUMENTS.",
   },
   mv: {
     description: "Move session and rewrite paths",
-    template:
-      "Move the session to $ARGUMENTS and rewrite path.cwd/root in all message history. Use when you want full context to reflect the new location.",
+    template: "Session moved to $ARGUMENTS.",
   },
   "add-dir": {
     description: "Grant tool access to an additional directory",
-    template:
-      "Grant tool access to $ARGUMENTS without changing the session's working directory. Use when you need to read or write files in a secondary project or monorepo package.",
+    template: "Added working directory: $ARGUMENTS.",
   },
   "remove-dir": {
     description: "Revoke tool access to an additional directory",
-    template:
-      "Revoke tool access to $ARGUMENTS without changing the session's working directory.",
+    template: "Removed working directory: $ARGUMENTS.",
   },
   vault: {
     description:

@@ -25,6 +25,7 @@ import {
   getSessionPermissions,
   getSessionInfo,
   getDbPath,
+  isGenerating,
 } from "./lib.js";
 import { vaultInit, vaultOpen, vaultClose } from "./lib.vault.js";
 import { Database } from "./db.js";
@@ -326,6 +327,45 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         return;
       }
 
+      if (input.command === "cd" || input.command === "mv" || input.command === "add-dir") {
+        // Stop the in-flight turn before landing a directory/permission change.
+        // opencode snapshots the ask ruleset once per run loop (session is
+        // read at loop start), so a mid-turn change would only apply to the
+        // next response — and mutating the session row under a live stream is
+        // the issue-#28 desync. Interrupt first (like Esc), wait for the turn
+        // to settle, then apply so the very next response sees the new state.
+        const settleDb = new Database(getDbPath());
+        try {
+          if (isGenerating(settleDb, input.sessionID)) {
+            await client.session.abort({ path: { id: input.sessionID } }).catch(() => {});
+            const deadline = Date.now() + 20000;
+            let settled = false;
+            while (Date.now() < deadline) {
+              if (!isGenerating(settleDb, input.sessionID)) {
+                settled = true;
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+            if (!settled) {
+              await client.tui
+                .showToast({
+                  body: {
+                    title: "Busy",
+                    message: `Session is still generating — ${input.command} not applied. Wait for the turn to end, then retry.`,
+                    variant: "warning",
+                    duration: 8000,
+                  },
+                })
+                .catch(() => {});
+              return;
+            }
+          }
+        } finally {
+          settleDb.close();
+        }
+      }
+
       if (input.command === "add-dir") {
         let exec: ExecResult;
         try {
@@ -364,7 +404,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               id: "prt_" + Date.now(),
               sessionID: input.sessionID,
               messageID: "msg_" + Date.now(),
-              text: `${targetPath} is now an additional working directory with same permissions as primary working directory`,
+              text: `${targetPath} added as a working directory`,
             },
           ];
         } else {
@@ -384,7 +424,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               id: "prt_" + Date.now(),
               sessionID: input.sessionID,
               messageID: "msg_" + Date.now(),
-              text: `${targetPath} is now an additional working directory with same permissions as primary working directory`,
+              text: `${targetPath} added as a working directory`,
             },
           ];
         }
