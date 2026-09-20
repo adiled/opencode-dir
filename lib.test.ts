@@ -318,7 +318,7 @@ describe("updateSession", () => {
     ensureProject(db, "proj_new", "/repo")
     updateSession(db, "ses_1", "/repo/src/app", "proj_new")
 
-    // Mirrors opencode's Session.list caller: input.path = sessionPath(worktree, cwd);
+    // Mirrors opencode's Session.list caller: input.path = sessionPath(worktree, cwd)
     // an empty input.path disables the filter (whole-project listing).
     const listedWhenOpenedAt = (cwd: string): number => {
       const inputPath = relative("/repo", cwd)
