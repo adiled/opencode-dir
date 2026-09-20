@@ -26,6 +26,7 @@ import {
   hasSchema,
   meetsMinVersion,
   isGenerating,
+  waitForSettled,
 } from "./lib"
 
 // Allow test file to bypass the plugin-system guard
@@ -453,6 +454,58 @@ describe("isGenerating", () => {
       error: "MessageAbortedError",
     })
     expect(isGenerating(db, "ses_1")).toBe(false)
+    db.close()
+  })
+})
+
+describe("waitForSettled", () => {
+  it("returns true without calling cancel when already idle", async () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    let cancelled = 0
+    const settled = await waitForSettled(db, "ses_1", async () => {
+      cancelled++
+    })
+    expect(settled).toBe(true)
+    expect(cancelled).toBe(0)
+    db.close()
+  })
+
+  it("calls cancel once and settles once the turn completes", async () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    stubMessage(db, "msg_2", "ses_1", { role: "assistant", time: { created: 1 } })
+
+    let cancelled = 0
+    const settled = await waitForSettled(db, "ses_1", async () => {
+      cancelled++
+      // simulate the abort handler finalizing the live turn
+      const rows = db.query("SELECT id, data FROM message WHERE session_id = ?").all("ses_1") as {
+        id: string
+        data: string
+      }[]
+      for (const row of rows) {
+        const data = JSON.parse(row.data)
+        if (data.role === "assistant" && data.time?.created !== undefined && data.time?.completed === undefined) {
+          data.time.completed = Date.now()
+          db.run("UPDATE message SET data = ? WHERE id = ?", [JSON.stringify(data), row.id])
+        }
+      }
+    })
+    expect(settled).toBe(true)
+    expect(cancelled).toBe(1)
+    db.close()
+  })
+
+  it("returns false when the turn never settles", async () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    stubMessage(db, "msg_2", "ses_1", { role: "assistant", time: { created: 1 } })
+    const settled = await waitForSettled(db, "ses_1", async () => {}, 500)
+    expect(settled).toBe(false)
     db.close()
   })
 })

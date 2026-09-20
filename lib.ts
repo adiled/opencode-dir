@@ -591,6 +591,22 @@ export function isGenerating(db: Database, sessionId: string): boolean {
   return false
 }
 
+export async function waitForSettled(
+  db: Database,
+  sessionId: string,
+  cancel: () => Promise<unknown>,
+  timeoutMs = 20000,
+): Promise<boolean> {
+  if (!isGenerating(db, sessionId)) return true
+  void cancel().catch(() => {})
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 200))
+    if (!isGenerating(db, sessionId)) return true
+  }
+  return false
+}
+
 
 export function rewriteMessages(
   db: Database,

@@ -25,7 +25,7 @@ import {
   getSessionPermissions,
   getSessionInfo,
   getDbPath,
-  isGenerating,
+  waitForSettled,
 } from "./lib.js";
 import { vaultInit, vaultOpen, vaultClose } from "./lib.vault.js";
 import { Database } from "./db.js";
@@ -330,30 +330,21 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       if (input.command === "cd" || input.command === "mv" || input.command === "add-dir") {
         const settleDb = new Database(getDbPath());
         try {
-          if (isGenerating(settleDb, input.sessionID)) {
-            await client.session.abort({ path: { id: input.sessionID } }).catch(() => {});
-            const deadline = Date.now() + 20000;
-            let settled = false;
-            while (Date.now() < deadline) {
-              if (!isGenerating(settleDb, input.sessionID)) {
-                settled = true;
-                break;
-              }
-              await new Promise((resolve) => setTimeout(resolve, 200));
-            }
-            if (!settled) {
-              await client.tui
-                .showToast({
-                  body: {
-                    title: "Busy",
-                    message: `Session is still generating — ${input.command} not applied. Wait for the turn to end, then retry.`,
-                    variant: "warning",
-                    duration: 8000,
-                  },
-                })
-                .catch(() => {});
-              return;
-            }
+          const settled = await waitForSettled(settleDb, input.sessionID, () =>
+            client.session.abort({ path: { id: input.sessionID } }),
+          );
+          if (!settled) {
+            await client.tui
+              .showToast({
+                body: {
+                  title: "Busy",
+                  message: `Session is still generating — ${input.command} not applied. Wait for the turn to end, then retry.`,
+                  variant: "warning",
+                  duration: 8000,
+                },
+              })
+              .catch(() => {});
+            return;
           }
         } finally {
           settleDb.close();
