@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { Database } from "./db"
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from "fs"
 import { execSync } from "child_process"
 import { join, relative } from "path"
 import { tmpdir } from "os"
@@ -202,6 +202,39 @@ describe("ensureProject", () => {
     ensureProject(db, "proj_1", "/work")
     const count = db.query("SELECT count(*) as c FROM project WHERE id = ?").get("proj_1") as Record<string, unknown>
     expect(count.c).toBe(1)
+    db.close()
+  })
+
+  it("stores the git top-level as worktree for a subdir of a git repo", () => {
+    const repo = createGitRepo()
+    const subdir = join(repo, "src", "app")
+    mkdirSync(subdir, { recursive: true })
+    try {
+      const db = createTestDb()
+      ensureProject(db, "proj_sub", subdir)
+      const row = db.query("SELECT worktree FROM project WHERE id = ?").get("proj_sub") as Record<string, unknown>
+      // Mirror opencode: worktree is the repo root, not the requested dir
+      expect(row.worktree).toBe(realpathSync(repo))
+      db.close()
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it("stores '/' as worktree for the global project", () => {
+    const db = createTestDb()
+    ensureProject(db, "global", "/tmp/plain")
+    const row = db.query("SELECT worktree FROM project WHERE id = ?").get("global") as Record<string, unknown>
+    expect(row.worktree).toBe("/")
+    db.close()
+  })
+
+  it("does not mutate an existing row when the global worktree is later requested", () => {
+    const db = createTestDb()
+    ensureProject(db, "proj_1", "/work")
+    ensureProject(db, "proj_1", "/elsewhere")
+    const row = db.query("SELECT worktree FROM project WHERE id = ?").get("proj_1") as Record<string, unknown>
+    expect(row.worktree).toBe("/work")
     db.close()
   })
 })
@@ -464,7 +497,7 @@ describe("execMove", () => {
 
     const row = db.query("SELECT id, worktree FROM project WHERE id = ?").get(projectId) as Record<string, unknown>
     expect(row).toBeTruthy()
-    expect(row.worktree).toBe(repo)
+    expect(row.worktree).toBe(realpathSync(repo))
   })
 
   it("returns error when database has no schema", () => {

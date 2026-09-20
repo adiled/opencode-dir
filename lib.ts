@@ -1,6 +1,6 @@
 import { Database } from "./db.js"
 import { resolve, join, isAbsolute, relative } from "path"
-import { existsSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, realpathSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
 import { homedir } from "os"
 
@@ -455,15 +455,33 @@ export function createSchema(db: Database) {
   `)
 }
 
+/** Git top-level of dir's repo (canonicalized); dir itself when git is unavailable. */
+export function gitRoot(dir: string): string {
+  try {
+    const out = execSync("git rev-parse --show-toplevel", {
+      cwd: dir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "ignore"],
+    })
+    const root = out.trim()
+    return root ? realpathSync(root) : dir
+  } catch {
+    return dir
+  }
+}
+
 /** Creates a project row if one does not already exist. */
 export function ensureProject(db: Database, projectId: string, worktree: string) {
   if (db.query("SELECT id FROM project WHERE id = ?").get(projectId)) return
+  // Mirror opencode: git projects store the repo root as worktree (set once,
+  // never mutated); the global project always uses "/".
+  const real = projectId === "global" ? "/" : gitRoot(worktree)
 
   const now = Date.now()
   db.run(
     `INSERT INTO project (id, worktree, time_created, time_updated, sandboxes)
      VALUES (?, ?, ?, ?, '[]')`,
-    [projectId, worktree, now, now],
+    [projectId, real, now, now],
   )
 }
 
