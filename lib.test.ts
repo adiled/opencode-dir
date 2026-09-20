@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { Database } from "./db"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "fs"
 import { execSync } from "child_process"
-import { join } from "path"
+import { join, relative } from "path"
 import { tmpdir } from "os"
 import {
   initPluginGuard,
@@ -231,6 +231,79 @@ describe("updateSession", () => {
     stubSession(db, "ses_1", "proj_1", "/old")
     ensureProject(db, "proj_new", "/new")
     expect(updateSession(db, "ses_nope", "/new", "proj_new")).toBe(0)
+    db.close()
+  })
+
+  it("recomputes the path column relative to the project worktree (opencode >= 1.18)", () => {
+    const db = createTestDb()
+    db.exec("ALTER TABLE session ADD COLUMN path TEXT")
+    stubSession(db, "ses_1", "proj_1", "/old")
+    db.run("UPDATE session SET path = ? WHERE id = ?", ["Users/me/dev/test", "ses_1"])
+    ensureProject(db, "proj_new", "/repo")
+
+    updateSession(db, "ses_1", "/repo/src/app", "proj_new")
+
+    const row = db.query("SELECT directory, path FROM session WHERE id = ?").get("ses_1") as Record<string, unknown>
+    expect(row.directory).toBe("/repo/src/app")
+    // Mirrors opencode's sessionPath(): relative(worktree, cwd), "/"-normalized
+    expect(row.path).toBe("src/app")
+    db.close()
+  })
+
+  it("stores an empty path when the target equals the project worktree", () => {
+    const db = createTestDb()
+    db.exec("ALTER TABLE session ADD COLUMN path TEXT")
+    stubSession(db, "ses_1", "proj_1", "/old")
+    db.run("UPDATE session SET path = ? WHERE id = ?", ["old", "ses_1"])
+    ensureProject(db, "proj_new", "/repo")
+
+    updateSession(db, "ses_1", "/repo", "proj_new")
+
+    const row = db.query("SELECT path FROM session WHERE id = ?").get("ses_1") as { path: string | null }
+    expect(row.path).toBe("")
+    db.close()
+  })
+
+  it("falls back to NULL when the target lies outside the project worktree", () => {
+    const db = createTestDb()
+    db.exec("ALTER TABLE session ADD COLUMN path TEXT")
+    stubSession(db, "ses_1", "proj_1", "/old")
+    db.run("UPDATE session SET path = ? WHERE id = ?", ["old", "ses_1"])
+    ensureProject(db, "proj_new", "/repo")
+
+    updateSession(db, "ses_1", "/elsewhere", "proj_new")
+
+    const row = db.query("SELECT path FROM session WHERE id = ?").get("ses_1") as { path: string | null }
+    expect(row.path).toBeNull()
+    db.close()
+  })
+
+  it("lists a moved session like one created at the new location", () => {
+    const db = createTestDb()
+    db.exec("ALTER TABLE session ADD COLUMN path TEXT")
+    stubSession(db, "ses_1", "proj_1", "/old")
+    ensureProject(db, "proj_new", "/repo")
+    updateSession(db, "ses_1", "/repo/src/app", "proj_new")
+
+    // Mirrors opencode's Session.list caller: input.path = sessionPath(worktree, cwd);
+    // an empty input.path disables the filter (whole-project listing).
+    const listedWhenOpenedAt = (cwd: string): number => {
+      const inputPath = relative("/repo", cwd)
+      if (!inputPath) {
+        return (db.query("SELECT count(*) as c FROM session WHERE project_id = ?").get("proj_new") as { c: number }).c
+      }
+      const row = db
+        .query(
+          "SELECT count(*) as c FROM session WHERE project_id = ? AND (path = ? OR path LIKE ? OR (path IS NULL AND directory = ?))",
+        )
+        .get("proj_new", inputPath, `${inputPath}/%`, cwd) as { c: number }
+      return row.c
+    }
+
+    expect(listedWhenOpenedAt("/repo/src/app")).toBe(1) // exact location
+    expect(listedWhenOpenedAt("/repo/src")).toBe(1) // ancestor bucket (LIKE path/%)
+    expect(listedWhenOpenedAt("/repo")).toBe(1) // worktree root: whole-project listing
+    expect(listedWhenOpenedAt("/old")).toBe(0) // never under the old directory
     db.close()
   })
 })
@@ -510,6 +583,36 @@ describe("appendDirPermission", () => {
     const db = createTestDb()
     const changes = appendDirPermission(db, "ses_nope", "/extra")
     expect(changes).toBe(0)
+    db.close()
+  })
+
+  it("noop: adding the session's own directory writes no rule", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/work")
+
+    const result = appendDirPermission(db, "ses_1", "/work")
+    expect(result).toBe(-1)
+
+    const row = db.query("SELECT permission FROM session WHERE id = ?").get("ses_1") as { permission: string | null }
+    expect(row.permission).toBeNull()
+    db.close()
+  })
+
+  it("noop: adding the project worktree writes no rule", () => {
+    const db = createTestDb()
+    ensureProject(db, "proj_1", "/repo")
+    const now = Date.now()
+    db.run(
+      `INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+       VALUES (?, ?, 'test', ?, 'Test', 'v2', ?, ?)`,
+      ["ses_1", "proj_1", "/repo/src", now, now],
+    )
+
+    const result = appendDirPermission(db, "ses_1", "/repo")
+    expect(result).toBe(-1)
+
+    const row = db.query("SELECT permission FROM session WHERE id = ?").get("ses_1") as { permission: string | null }
+    expect(row.permission).toBeNull()
     db.close()
   })
 })

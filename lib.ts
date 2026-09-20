@@ -1,5 +1,5 @@
 import { Database } from "./db.js"
-import { resolve, join, isAbsolute } from "path"
+import { resolve, join, isAbsolute, relative } from "path"
 import { existsSync, readFileSync, writeFileSync } from "fs"
 import { execSync } from "child_process"
 import { homedir } from "os"
@@ -204,7 +204,7 @@ export function persistOverrides(path: string, map: Map<string, Override>) {
 // Version check
 // ---------------------------------------------------------------------------
 
-export const MIN_OPENCODE_VERSION = "1.4.3"
+export const MIN_OPENCODE_VERSION = "1.18.0"
 
 declare const OPENCODE_VERSION: string | undefined
 
@@ -474,6 +474,14 @@ function hasPermissionTable(db: Database): boolean {
   } catch { return false }
 }
 
+/** True when the session table has opencode's `path` column (opencode >= 1.18). */
+function hasPathColumn(db: Database): boolean {
+  try {
+    const cols = db.query(`PRAGMA table_info(session)`).all() as { name: string }[]
+    return cols.some((c) => c.name === "path")
+  } catch { return false }
+}
+
 /**
  * Updates a session's directory, project, and permission in one statement.
  *
@@ -484,40 +492,73 @@ function hasPermissionTable(db: Database): boolean {
  * so the rule is available when tools run.
  * Atomic: session + permission table in one BEGIN IMMEDIATE.
  */
-export function updateSession(db: Database, sessionId: string, newDir: string, newProjectId: string): number {
-  const existing = getSessionPermissions(db, sessionId)
-  const pattern = newDir + "/*"
-const already = existing.some(
-      (r: { permission: string; pattern: string }) => r.permission === "external_directory" && r.pattern === pattern,
-    )
+export function updateSession(
+  db: Database,
+  sessionId: string,
+  newDir: string,
+  newProjectId: string,
+): number {
+  const existing = getSessionPermissions(db, sessionId);
+  const pattern = newDir + "/*";
+  const already = existing.some(
+    (r: { permission: string; pattern: string }) =>
+      r.permission === "external_directory" && r.pattern === pattern,
+  );
   if (!already) {
-    existing.push({ permission: "external_directory", pattern, action: "allow" })
+    existing.push({
+      permission: "external_directory",
+      pattern,
+      action: "allow",
+    });
   }
-  const permission = JSON.stringify(existing)
-  const hasPermTable = hasPermissionTable(db)
-  let changes = 0
+  const permission = JSON.stringify(existing);
+  const hasPermTable = hasPermissionTable(db);
+  const hasPathCol = hasPathColumn(db);
+  // Recompute session.path like opencode's sessionPath(): relative to the
+  // project worktree. NULL when the target is outside the worktree.
+  const projectRow = db
+    .query("SELECT worktree FROM project WHERE id = ?")
+    .get(newProjectId) as { worktree?: string } | null;
+  const rel = projectRow?.worktree
+    ? relative(projectRow.worktree, newDir).replaceAll("\\", "/")
+    : "";
+  const subpath =
+    !projectRow?.worktree ||
+    rel === ".." ||
+    rel.startsWith("../") ||
+    isAbsolute(rel)
+      ? null
+      : rel;
+  let changes = 0;
   const tx = db.transaction(() => {
     changes = db.run(
-      `UPDATE session SET directory = ?, project_id = ?, permission = ?, time_updated = ? WHERE id = ?`,
-      [newDir, newProjectId, permission, Date.now(), sessionId],
-    ).changes
+      hasPathCol
+        ? `UPDATE session SET directory = ?, project_id = ?, path = ?, permission = ?, time_updated = ? WHERE id = ?`
+        : `UPDATE session SET directory = ?, project_id = ?, permission = ?, time_updated = ? WHERE id = ?`,
+      hasPathCol
+        ? [newDir, newProjectId, subpath, permission, Date.now(), sessionId]
+        : [newDir, newProjectId, permission, Date.now(), sessionId],
+    ).changes;
     if (changes > 0 && hasPermTable) {
       const row = db
-        .query(`SELECT id FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`)
-        .get(newProjectId, pattern) as { id: string } | null
+        .query(
+          `SELECT id FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?`,
+        )
+        .get(newProjectId, pattern) as { id: string } | null;
       if (!row) {
-        const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
-        const now = Date.now()
+        const id = `per_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+        const now = Date.now();
         db.run(
           `INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)`,
           [id, newProjectId, pattern, now, now],
-        )
+        );
       }
     }
-  })
-  tx()
-  return changes
+  });
+  tx();
+  return changes;
 }
+
 
 /**
  * Rewrites `path.cwd` and `path.root` in message data from `oldDir` to
@@ -680,6 +721,12 @@ export function appendDirPermission(db: Database, sessionId: string, dir: string
   const pattern = dir + "/*"
   const info = getSessionInfo(db, sessionId)
   if (!info) return 0
+  // /add-dir on the session's own dir or project worktree: containsPath()
+  // already treats those as inside the project, so the rule would be dead code.
+  const own = db
+    .query("SELECT worktree FROM project WHERE id = ?")
+    .get(info.projectId) as { worktree?: string } | null
+  if (dir === info.directory || dir === own?.worktree) return -1
   const hasPermTable = hasPermissionTable(db)
   const existing = getSessionPermissions(db, sessionId)
 
