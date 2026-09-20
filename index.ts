@@ -25,6 +25,7 @@ import {
   getSessionPermissions,
   getSessionInfo,
   getDbPath,
+  waitForSettled,
 } from "./lib.js";
 import { vaultInit, vaultOpen, vaultClose } from "./lib.vault.js";
 import { Database } from "./db.js";
@@ -326,6 +327,30 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         return;
       }
 
+      if (input.command === "cd" || input.command === "mv" || input.command === "add-dir") {
+        const settleDb = new Database(getDbPath());
+        try {
+          const settled = await waitForSettled(settleDb, input.sessionID, () =>
+            client.session.abort({ path: { id: input.sessionID } }),
+          );
+          if (!settled) {
+            await client.tui
+              .showToast({
+                body: {
+                  title: "Busy",
+                  message: `Session is still generating — ${input.command} not applied. Wait for the turn to end, then retry.`,
+                  variant: "warning",
+                  duration: 8000,
+                },
+              })
+              .catch(() => {});
+            return;
+          }
+        } finally {
+          settleDb.close();
+        }
+      }
+
       if (input.command === "add-dir") {
         let exec: ExecResult;
         try {
@@ -364,7 +389,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               id: "prt_" + Date.now(),
               sessionID: input.sessionID,
               messageID: "msg_" + Date.now(),
-              text: `${targetPath} is now an additional working directory with same permissions as primary working directory`,
+              text: `${targetPath} added as a working directory`,
             },
           ];
         } else {
@@ -384,7 +409,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               id: "prt_" + Date.now(),
               sessionID: input.sessionID,
               messageID: "msg_" + Date.now(),
-              text: `${targetPath} is now an additional working directory with same permissions as primary working directory`,
+              text: `${targetPath} added as a working directory`,
             },
           ];
         }

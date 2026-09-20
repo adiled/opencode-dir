@@ -25,6 +25,8 @@ import {
   getDbPath,
   hasSchema,
   meetsMinVersion,
+  isGenerating,
+  waitForSettled,
 } from "./lib"
 
 // Allow test file to bypass the plugin-system guard
@@ -404,6 +406,108 @@ describe("rewriteMessages", () => {
     expect(result.rewritten).toBe(0)
     db.close()
   })
+
+  it("skips assistant messages that are still streaming", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "assistant", time: { created: 1 }, path: { cwd: "/old" } })
+    stubMessage(db, "msg_2", "ses_1", { role: "assistant", time: { created: 1, completed: 2 }, path: { cwd: "/old" } })
+
+    const result = rewriteMessages(db, "ses_1", "/old", "/new")
+    expect(result.total).toBe(2)
+    expect(result.rewritten).toBe(1)
+    expect(result.skipped).toBe(1)
+
+    const msg1 = db.query("SELECT data FROM message WHERE id = ?").get("msg_1") as Record<string, unknown>
+    expect(JSON.parse(msg1.data).path.cwd).toBe("/old") // untouched
+    const msg2 = db.query("SELECT data FROM message WHERE id = ?").get("msg_2") as Record<string, unknown>
+    expect(JSON.parse(msg2.data).path.cwd).toBe("/new")
+    db.close()
+  })
+})
+
+describe("isGenerating", () => {
+  it("false when no assistant turn is in flight", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    stubMessage(db, "msg_2", "ses_1", { role: "assistant", time: { created: 1, completed: 2 } })
+    expect(isGenerating(db, "ses_1")).toBe(false)
+    db.close()
+  })
+
+  it("true when an assistant turn has no time.completed", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    stubMessage(db, "msg_2", "ses_1", { role: "assistant", time: { created: 1 } })
+    expect(isGenerating(db, "ses_1")).toBe(true)
+    db.close()
+  })
+
+  it("false for the aborted-turn shape (completed set)", () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", {
+      role: "assistant",
+      time: { created: 1, completed: 2 },
+      error: "MessageAbortedError",
+    })
+    expect(isGenerating(db, "ses_1")).toBe(false)
+    db.close()
+  })
+})
+
+describe("waitForSettled", () => {
+  it("returns true without calling cancel when already idle", async () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    let cancelled = 0
+    const settled = await waitForSettled(db, "ses_1", async () => {
+      cancelled++
+    })
+    expect(settled).toBe(true)
+    expect(cancelled).toBe(0)
+    db.close()
+  })
+
+  it("calls cancel once and settles once the turn completes", async () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    stubMessage(db, "msg_2", "ses_1", { role: "assistant", time: { created: 1 } })
+
+    let cancelled = 0
+    const settled = await waitForSettled(db, "ses_1", async () => {
+      cancelled++
+      // simulate the abort handler finalizing the live turn
+      const rows = db.query("SELECT id, data FROM message WHERE session_id = ?").all("ses_1") as {
+        id: string
+        data: string
+      }[]
+      for (const row of rows) {
+        const data = JSON.parse(row.data)
+        if (data.role === "assistant" && data.time?.created !== undefined && data.time?.completed === undefined) {
+          data.time.completed = Date.now()
+          db.run("UPDATE message SET data = ? WHERE id = ?", [JSON.stringify(data), row.id])
+        }
+      }
+    })
+    expect(settled).toBe(true)
+    expect(cancelled).toBe(1)
+    db.close()
+  })
+
+  it("returns false when the turn never settles", async () => {
+    const db = createTestDb()
+    stubSession(db, "ses_1", "proj_1", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "user", content: "hi" })
+    stubMessage(db, "msg_2", "ses_1", { role: "assistant", time: { created: 1 } })
+    const settled = await waitForSettled(db, "ses_1", async () => {}, 500)
+    expect(settled).toBe(false)
+    db.close()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -476,6 +580,19 @@ describe("execMove", () => {
     const result = execMove("ses_1", repo, false, db)
     expect(result.result).toContain("Already in")
     expect(result.result).toContain("no change")
+  })
+
+  it("refuses to move a session whose turn is still generating", () => {
+    stubSession(db, "ses_1", "proj_old", "/old")
+    stubMessage(db, "msg_1", "ses_1", { role: "assistant", time: { created: 1 }, path: { cwd: "/old" } })
+
+    const result = execMove("ses_1", repo, true, db)
+    expect(result.result).toContain("refusing to move it mid-turn")
+
+    // Nothing was mutated
+    const session = getSessionInfo(db, "ses_1")!
+    expect(session.directory).toBe("/old")
+    expect(session.projectId).toBe("proj_old")
   })
 
   it("writes session permission for target directory", () => {

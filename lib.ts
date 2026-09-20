@@ -573,25 +573,61 @@ export function updateSession(
   return changes
 }
 
-/**
- * Rewrites `path.cwd` and `path.root` in message data from `oldDir` to
- * `newDir`. Runs inside a transaction for atomicity.
- */
+export function isGenerating(db: Database, sessionId: string): boolean {
+  const rows = db
+    .query("SELECT data FROM message WHERE session_id = ?")
+    .all(sessionId) as { data: string }[]
+
+  for (const row of rows) {
+    try {
+      const data = JSON.parse(row.data)
+      if (data.role === "assistant" && data.time?.created !== undefined && data.time?.completed === undefined) {
+        return true
+      }
+    } catch {
+      continue
+    }
+  }
+  return false
+}
+
+export async function waitForSettled(
+  db: Database,
+  sessionId: string,
+  cancel: () => Promise<unknown>,
+  timeoutMs = 20000,
+): Promise<boolean> {
+  if (!isGenerating(db, sessionId)) return true
+  void cancel().catch(() => {})
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 200))
+    if (!isGenerating(db, sessionId)) return true
+  }
+  return false
+}
+
+
 export function rewriteMessages(
   db: Database,
   sessionId: string,
   oldDir: string,
   newDir: string,
-): { total: number; rewritten: number } {
+): { total: number; rewritten: number; skipped: number } {
   const messages = db
     .query("SELECT id, data FROM message WHERE session_id = ?")
     .all(sessionId) as { id: string; data: string }[]
 
   let rewritten = 0
+  let skipped = 0
   const update = db.prepare("UPDATE message SET data = ? WHERE id = ?")
   const tx = db.transaction(() => {
     for (const msg of messages) {
       const data = JSON.parse(msg.data)
+      if (data.role === "assistant" && data.time?.created !== undefined && data.time?.completed === undefined) {
+        skipped++
+        continue
+      }
       let changed = false
 
       if (data.path) {
@@ -613,7 +649,7 @@ export function rewriteMessages(
   })
   tx()
 
-  return { total: messages.length, rewritten }
+  return { total: messages.length, rewritten, skipped }
 }
 
 /**
@@ -849,6 +885,14 @@ export function execMove(
       return { result: `Already in ${dir} - no change needed.` }
     }
 
+    if (isGenerating(db, sessionId)) {
+      const msg =
+        "Session is currently generating a response - refusing to move it mid-turn.\n" +
+        "Abort the running turn (Esc) or wait for it to complete, then run the command again."
+      reportError(new Error(msg))
+      return { result: msg }
+    }
+
     ensureProject(db, projectId, dir)
     const changes = updateSession(db, sessionId, dir, projectId)
     if (changes === 0) {
@@ -865,11 +909,12 @@ export function execMove(
 
     const lines = rewrite
       ? (() => {
-          const { total, rewritten } = rewriteMessages(db!, sessionId, currentDir, dir)
+          const { total, rewritten, skipped } = rewriteMessages(db!, sessionId, currentDir, dir)
+          const skippedNote = skipped > 0 ? `, ${skipped} skipped (in-flight turn)` : ""
           return [
             `Session moved: ${currentDir} -> ${dir}`,
             `Project: ${projectId}`,
-            `Messages: ${rewritten}/${total} rewritten`,
+            `Messages: ${rewritten}/${total} rewritten${skippedNote}`,
           ]
         })()
       : [`Session directory changed: ${currentDir} -> ${dir}`, `Project: ${projectId}`]
