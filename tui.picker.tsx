@@ -12,9 +12,7 @@ import * as path from "node:path";
  * Directory picker for directory commands (/cd, /mv, /add-dir, /remove-dir).
  *
  * - Typing `/cd <space>` (or any dir command + trailing space) opens the
- *   picker automatically.
- * - Pressing tab mid-path (e.g. `/cd Doc<tab>`) or ctrl+o / alt+o opens it
- *   on demand.
+ *   picker automatically; pressing tab mid-path (/cd Doc<tab>) works too.
  * - The partial opens the picker at its deepest existing directory
  *   ("/cd /Users/adil/op" -> browses /Users/adil; missing "Doc" -> cwd).
  * - Picked paths are written back to the prompt, relative when under the
@@ -320,18 +318,6 @@ export function pickerView(api: TuiPluginApi): void {
           group: "opencode-dir",
           cmd: "opencode-dir.pick-dir",
         },
-        {
-          key: "ctrl+o",
-          desc: "Pick directory",
-          group: "opencode-dir",
-          cmd: "opencode-dir.pick-dir",
-        },
-        {
-          key: "alt+o",
-          desc: "Pick directory (alt)",
-          group: "opencode-dir",
-          cmd: "opencode-dir.pick-dir",
-        },
       ],
     });
     // 1.18.32 resolves binding `cmd` through the *command palette*
@@ -377,7 +363,7 @@ export function pickerView(api: TuiPluginApi): void {
     api.lifecycle.onDispose(() => clearInterval(watcher));
 
     pickLog(api, "pickerView installed", {
-      triggers: "space-after-command, tab, ctrl+o, alt+o",
+      triggers: "space-after-command, tab",
       commands: TARGET_CMDS,
       paletteMirrored: Boolean(legacy),
     });
