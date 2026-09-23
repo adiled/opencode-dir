@@ -12,11 +12,13 @@ import * as path from "node:path";
  * Directory picker for directory commands (/cd, /mv, /add-dir, /remove-dir).
  *
  * - Typing `/cd <space>` (or any dir command + trailing space) opens the
- *   picker automatically. Partial paths work: `/cd Doc<space>` opens rooted
- *   at ./Doc when it exists, else the session cwd.
- * - ctrl+o (or alt+o, alt+o also exists as a fallback) opens it on demand.
- * - Plain directory browser: session cwd root, [use this directory], ..,
- *   child dirs. No recommendations, no history.
+ *   picker automatically.
+ * - Pressing tab mid-path (e.g. `/cd Doc<tab>`) opens it too — the partial
+ *   becomes the filter: it's split at the deepest existing directory, which
+ *   becomes the browse root, and the remaining fragments filter its entries.
+ * - ctrl+o / alt+o open it on demand.
+ * - Plain directory browser; picked paths are written back to the prompt,
+ *   relative when under the cwd, absolute otherwise. No recommendations.
  *
  * Logs through api.client.app.log (same /log stream as index.ts).
  */
@@ -67,15 +69,41 @@ function sessionDir(api: TuiPluginApi): string {
   return process.cwd();
 }
 
-function resolveStart(cwd: string, partial: string): string {
+/**
+ * Split a partial path into the deepest existing directory (browse root)
+ * and the remaining fragments (prefix filter). e.g. "/Users/adil/op" ->
+ * base "/Users/adil", filter "op"; "Docum" (missing) -> base cwd, filter
+ * "Docum"; an existing path -> base itself, no filter.
+ */
+function parsePartial(cwd: string, partial: string): { base: string; filter: string } {
   const p = partial.trim();
-  let base: string;
-  if (p === "") base = cwd;
-  else if (p === "~") base = os.homedir();
-  else if (p.startsWith("~/")) base = path.join(os.homedir(), p.slice(2));
-  else if (path.isAbsolute(p)) base = p;
-  else base = path.resolve(cwd, p);
-  return path.normalize(base);
+  try {
+    if (p === "") return { base: cwd, filter: "" };
+    if (p === "~") return { base: os.homedir(), filter: "" };
+    const norm = path.normalize(
+      p.startsWith("~/")
+        ? path.join(os.homedir(), p.slice(2))
+        : path.isAbsolute(p)
+          ? p
+          : path.resolve(cwd, p),
+    );
+    if (fs.existsSync(norm) && fs.statSync(norm).isDirectory()) {
+      return { base: norm, filter: "" };
+    }
+    let test = norm;
+    const skipped: string[] = [];
+    while (true) {
+      const parent = path.dirname(test);
+      if (parent === test) return { base: cwd, filter: norm };
+      if (fs.existsSync(test) && fs.statSync(test).isDirectory()) {
+        return { base: test, filter: skipped.join(path.sep) };
+      }
+      skipped.unshift(path.basename(test));
+      test = parent;
+    }
+  } catch {
+    return { base: cwd, filter: p };
+  }
 }
 
 /** Relative form when under cwd, else absolute. */
@@ -172,17 +200,23 @@ function openPicker(api: TuiPluginApi): void {
 
 function browse(api: TuiPluginApi, cmd: string, partial: string): void {
   const cwd = sessionDir(api);
-  let current = resolveStart(cwd, partial);
+  const { base, filter } = parsePartial(cwd, partial);
+  let current = base;
+  let activeFilter = filter;
   pickLog(api, "browse start", {
     cmd,
     partial,
     cwd,
-    resolved: current,
-    exists: fs.existsSync(current),
+    base,
+    filter,
+    exists: fs.existsSync(base),
   });
 
   function render(): void {
-    const dirs = childDirs(current);
+    const dirs = childDirs(current).filter((d) =>
+      activeFilter ? d.toLowerCase().startsWith(activeFilter.toLowerCase()) : true,
+    );
+    const pending = activeFilter ? path.join(current, activeFilter) : current;
 
     function pick(rel: string): void {
       const ref = promptRef;
@@ -211,11 +245,11 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
 
     const options = [
       {
-        title: "[use this directory]",
-        description: displayPath(cwd, current),
+        title: activeFilter ? `[use ${activeFilter}]` : "[use this directory]",
+        description: displayPath(cwd, pending),
         value: { kind: "pick" } as Opt,
         onSelect: () => {
-          pick(displayPath(cwd, current));
+          pick(displayPath(cwd, pending));
         },
       },
       ...(isRoot(current)
@@ -227,6 +261,7 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
               value: { kind: "up" } as Opt,
               onSelect: () => {
                 current = path.dirname(current);
+                activeFilter = "";
                 render();
               },
             },
@@ -236,6 +271,7 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
         value: { kind: "dir", name } as Opt,
         onSelect: () => {
           current = path.join(current, name);
+          activeFilter = "";
           render();
         },
       })),
@@ -243,7 +279,11 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
 
     api.ui.dialog.replace(() => (
       <api.ui.DialogSelect
-        title={`Pick directory: ${displayPath(cwd, current)}`}
+        title={
+          activeFilter
+            ? `Pick directory (filter "${activeFilter}"): ${displayPath(cwd, current)}`
+            : `Pick directory: ${displayPath(cwd, current)}`
+        }
         options={options}
         placeholder="type to filter"
       />
@@ -293,6 +333,12 @@ export function pickerView(api: TuiPluginApi): void {
         },
       ],
       bindings: [
+        {
+          key: "tab",
+          desc: "Pick directory",
+          group: "opencode-dir",
+          cmd: "opencode-dir.pick-dir",
+        },
         {
           key: "ctrl+o",
           desc: "Pick directory",
@@ -350,7 +396,7 @@ export function pickerView(api: TuiPluginApi): void {
     api.lifecycle.onDispose(() => clearInterval(watcher));
 
     pickLog(api, "pickerView installed", {
-      triggers: "space-after-command, ctrl+o, alt+o",
+      triggers: "space-after-command, tab, ctrl+o, alt+o",
       commands: TARGET_CMDS,
       paletteMirrored: Boolean(legacy),
     });
