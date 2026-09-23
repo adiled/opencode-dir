@@ -10,6 +10,7 @@ import { createMemo, Show } from "solid-js";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { Effect } from "effect";
+import { pickerView } from "./tui.picker.js";
 
 function abbreviateHome(input: string, home: string) {
   if (!home) return input;
@@ -112,6 +113,7 @@ export const tui: TuiPlugin = async (api) => {
     const home = (process.env.HOME || "") as string;
     const base = (process.env.XDG_DATA_HOME ||
       home + "/.local/share") as string;
+    pickerView(api);
     setInterval(() => {
       try {
         const cur = (api.route.current as unknown as { params?: { sessionID?: string } })?.params?.sessionID as

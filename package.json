@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "build": "rm -rf dist && mkdir -p dist && cp tui.tsx dist/tui.tsx",
+    "build": "rm -rf dist && mkdir -p dist && cp tui.tsx dist/tui.tsx && cp tui.picker.tsx dist/tui.picker.tsx",
     "prepublishOnly": "npm run build",
     "lint": "oxlint --type-aware"
   },
