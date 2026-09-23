@@ -25,6 +25,9 @@ import {
   getDbPath,
   hasSchema,
   meetsMinVersion,
+  getOpencodeVersion,
+  refreshOpencodeVersion,
+  resetOpencodeVersionCache,
   isGenerating,
   waitForSettled,
 } from "./lib"
@@ -883,6 +886,28 @@ describe("meetsMinVersion", () => {
   })
   it("returns true when minimum is non-semver", () => {
     expect(meetsMinVersion("1.0.0", "local")).toBe(true)
+  })
+})
+
+describe("getOpencodeVersion", () => {
+  afterEach(() => {
+    resetOpencodeVersionCache()
+  })
+
+  it("returns null before the CLI version is resolved", () => {
+    expect(getOpencodeVersion()).toBe(null)
+  })
+})
+
+describe("refreshOpencodeVersion", () => {
+  afterEach(() => {
+    resetOpencodeVersionCache()
+    delete process.env["OPENCODE_DIR_TEST"]
+  })
+
+  it("does not crash when the opencode binary cannot run (test mode)", async () => {
+    process.env["OPENCODE_DIR_TEST"] = "1"
+    expect(await refreshOpencodeVersion()).toBe(null)
   })
 })
 

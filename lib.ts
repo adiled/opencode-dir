@@ -1,7 +1,8 @@
 import { Database } from "./db.js"
 import { resolve, join, isAbsolute, relative } from "path"
 import { existsSync, realpathSync, readFileSync, writeFileSync } from "fs"
-import { execSync } from "child_process"
+import { execSync, execFile } from "child_process"
+import { promisify } from "util"
 import { homedir } from "os"
 
 // Guard: only allow execMove / execAddDir when called from within opencode's plugin system.
@@ -206,20 +207,33 @@ export function persistOverrides(path: string, map: Map<string, Override>) {
 
 export const MIN_OPENCODE_VERSION = "1.18.0"
 
-declare const OPENCODE_VERSION: string | undefined
+function normalizeVersion(version: string): string | null {
+  return version === "0.0.0" || version.startsWith("0.0.0-") ? null : version
+}
 
-/**
- * Reads the opencode version from the `OPENCODE_VERSION` global
- * (injected at build time by opencode).
- * Returns `null` when the global is absent (e.g. very old builds).
- */
+let serverVersion: string | null = null
+
+const execFileAsync = promisify(execFile)
+
+export function resetOpencodeVersionCache(): void {
+  serverVersion = null
+}
+
 export function getOpencodeVersion(): string | null {
-  try {
-    // eslint-disable-next-line no-undef
-    return typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : null
-  } catch {
-    return null
+  return serverVersion
+}
+
+export async function refreshOpencodeVersion(): Promise<string | null> {
+  if (!process.env.OPENCODE_DIR_TEST) {
+    try {
+      const { stdout } = await execFileAsync("opencode", ["--version"], {
+        timeout: 3000,
+      })
+      const version = stdout.trim()
+      if (version) serverVersion = normalizeVersion(version)
+    } catch {}
   }
+  return getOpencodeVersion()
 }
 
 /**
