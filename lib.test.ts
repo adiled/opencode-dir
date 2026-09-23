@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { Database } from "./db"
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from "fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync, symlinkSync } from "fs"
 import { execSync } from "child_process"
 import { join, relative } from "path"
 import { tmpdir } from "os"
@@ -158,14 +158,17 @@ describe("getInitialCommit", () => {
 describe("resolveTarget", () => {
   let repo: string
   let nonGit: string
+  let hostile: string
 
   beforeEach(() => {
     repo = createGitRepo()
     nonGit = mkdtempSync(join(tmpdir(), "ocd-test-"))
+    hostile = mkdtempSync(join(tmpdir(), "ocd-hostile-"))
   })
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true })
     rmSync(nonGit, { recursive: true, force: true })
+    rmSync(hostile, { recursive: true, force: true })
   })
 
   it("resolves a git repo to dir and projectId", () => {
@@ -189,6 +192,55 @@ describe("resolveTarget", () => {
     const result = resolveTarget(nonGit)
     expect(result.dir).toBe(nonGit)
     expect(result.projectId).toBe("global")
+  })
+
+  it("resolves unicode and foreign-language directory names", () => {
+    const unicode = join(hostile, "проект-中文-日本語-العربية-😀")
+    mkdirSync(unicode, { recursive: true })
+    const result = resolveTarget(unicode)
+    expect(result.dir).toBe(unicode)
+  })
+
+  it("throws Not a directory for a unicode file", () => {
+    const file = join(hostile, "файл-文件-ملف")
+    writeFileSync(file, "x")
+    expect(() => resolveTarget(file)).toThrow("Not a directory")
+  })
+
+  it("resolves directories with spaces, parentheses, and quote characters", () => {
+    const dir = join(hostile, "my repo (café)")
+    mkdirSync(dir, { recursive: true })
+    expect(resolveTarget(`"${dir}"`).dir).toBe(dir)
+    expect(resolveTarget(dir).dir).toBe(dir)
+  })
+
+  it("normalizes a trailing slash", () => {
+    const result = resolveTarget(hostile + "/")
+    expect(result.dir).toBe(hostile)
+  })
+
+  it("follows a symlink to a directory", () => {
+    const link = join(hostile, "link")
+    symlinkSync(nonGit, link)
+    const result = resolveTarget(link)
+    expect(result.dir).toBe(link)
+  })
+
+  it("expands leading tilde against HOME", () => {
+    const savedHome = process.env.HOME
+    process.env.HOME = hostile
+    try {
+      mkdirSync(join(hostile, "tilde"))
+      const result = resolveTarget("~/tilde")
+      expect(result.dir).toBe(join(hostile, "tilde"))
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME
+      else process.env.HOME = savedHome
+    }
+  })
+
+  it("parses a windows double-paste path then fails on posix", () => {
+    expect(() => resolveTarget('C:\\foo\\"C:\\bar"')).toThrow("Directory does not exist")
   })
 })
 
