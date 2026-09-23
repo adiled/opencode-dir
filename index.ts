@@ -5,7 +5,6 @@ import type { Plugin as PromisePlugin } from "@opencode-ai/plugin/v2/promise";
 // (issues #22/#23: v1.2.4 omitted lib.protocol.ts from npm `files`).
 import { mkdirSync } from "fs";
 import { homedir } from "os";
-import { Effect } from "effect";
 import {
   type Override,
   type ExecResult,
@@ -17,7 +16,7 @@ import {
   reportError,
   reportUpdateError,
   getVersion,
-  getOpencodeVersion,
+  refreshOpencodeVersion,
   meetsMinVersion,
   MIN_OPENCODE_VERSION,
   checkForUpdate,
@@ -45,19 +44,24 @@ const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE);
 export const OpencodeDir: Plugin = async ({ client }) => {
   initPluginGuard();
   mkdirSync(STATE_DIR, { recursive: true });
-  Effect.runSync(
-    Effect.logInfo("opencode-dir plugin loaded", {
-      overridesRecovered: dirOverrides.size,
-    }),
-  );
 
-  const ocVersion = getOpencodeVersion();
-  Effect.runSync(
-    Effect.logInfo("opencode version", {
-      version: ocVersion,
-      minimum: MIN_OPENCODE_VERSION,
-    }),
-  );
+  const log = async (message: string, extra?: Record<string, unknown>) => {
+    try {
+      await client.app.log({
+        body: { service: "opencode-dir", level: "info", message, extra },
+      });
+    } catch {}
+  };
+
+  await log("opencode-dir plugin loaded", {
+    overridesRecovered: dirOverrides.size,
+  });
+
+  const ocVersion = await refreshOpencodeVersion();
+  await log("opencode version", {
+    version: ocVersion ?? "unknown",
+    minimum: MIN_OPENCODE_VERSION,
+  });
   if (ocVersion && !meetsMinVersion(ocVersion, MIN_OPENCODE_VERSION)) {
     await client.tui
       .showToast({
@@ -73,7 +77,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
   // Non-blocking self-update check — purges cache if newer version exists
   const updateResult = await checkForUpdate();
-  Effect.runSync(Effect.logInfo("opencode-dir update check", updateResult));
+  await log("opencode-dir update check", { ...updateResult });
   if (updateResult.updated) {
     client.tui
       .showToast({
@@ -108,12 +112,10 @@ export const OpencodeDir: Plugin = async ({ client }) => {
     },
 
     "command.execute.before": async (input, output) => {
-      Effect.runSync(
-        Effect.logInfo("opencode-dir command.execute.before", {
-          command: input.command,
-          sessionID: input.sessionID,
-        }),
-      );
+      await log("opencode-dir command.execute.before", {
+        command: input.command,
+        sessionID: input.sessionID,
+      });
       // per-command protocol drift check
       try {
         const { registry, runWithDriftCheck } =
@@ -508,13 +510,11 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       }
 
       if (exec.oldDir && exec.newDir) {
-        Effect.runSync(
-          Effect.logInfo("opencode-dir storing override", {
-            sessionID: input.sessionID,
-            oldDir: exec.oldDir,
-            newDir: exec.newDir,
-          }),
-        );
+        await log("opencode-dir storing override", {
+          sessionID: input.sessionID,
+          oldDir: exec.oldDir,
+          newDir: exec.newDir,
+        });
         dirOverrides.set(input.sessionID, {
           oldDir: exec.oldDir,
           newDir: exec.newDir,
@@ -567,12 +567,10 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       try {
         const override = dirOverrides.get(input.sessionID);
         if (!override) return;
-        Effect.runSync(
-          Effect.logInfo("opencode-dir tool.execute.before", {
-            tool: input.tool,
-            sessionID: input.sessionID,
-          }),
-        );
+        await log("opencode-dir tool.execute.before", {
+          tool: input.tool,
+          sessionID: input.sessionID,
+        });
 
         const { newDir } = override;
 
