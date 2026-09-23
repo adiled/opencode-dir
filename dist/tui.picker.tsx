@@ -13,12 +13,12 @@ import * as path from "node:path";
  *
  * - Typing `/cd <space>` (or any dir command + trailing space) opens the
  *   picker automatically.
- * - Pressing tab mid-path (e.g. `/cd Doc<tab>`) opens it too — the partial
- *   becomes the filter: it's split at the deepest existing directory, which
- *   becomes the browse root, and the remaining fragments filter its entries.
- * - ctrl+o / alt+o open it on demand.
- * - Plain directory browser; picked paths are written back to the prompt,
- *   relative when under the cwd, absolute otherwise. No recommendations.
+ * - Pressing tab mid-path (e.g. `/cd Doc<tab>`) or ctrl+o / alt+o opens it
+ *   on demand.
+ * - The partial opens the picker at its deepest existing directory
+ *   ("/cd /Users/adil/op" -> browses /Users/adil; missing "Doc" -> cwd).
+ * - Picked paths are written back to the prompt, relative when under the
+ *   cwd, absolute otherwise. No recommendations.
  *
  * Logs through api.client.app.log (same /log stream as index.ts).
  */
@@ -70,16 +70,15 @@ function sessionDir(api: TuiPluginApi): string {
 }
 
 /**
- * Split a partial path into the deepest existing directory (browse root)
- * and the remaining fragments (prefix filter). e.g. "/Users/adil/op" ->
- * base "/Users/adil", filter "op"; "Docum" (missing) -> base cwd, filter
- * "Docum"; an existing path -> base itself, no filter.
+ * Deepest existing directory along a partial path — the browse root.
+ * e.g. "/Users/adil/op" (op missing) -> /Users/adil; "Docum" (missing) ->
+ * cwd; an existing path -> itself; "" -> cwd.
  */
-function parsePartial(cwd: string, partial: string): { base: string; filter: string } {
+function resolveStart(cwd: string, partial: string): string {
   const p = partial.trim();
   try {
-    if (p === "") return { base: cwd, filter: "" };
-    if (p === "~") return { base: os.homedir(), filter: "" };
+    if (p === "") return cwd;
+    if (p === "~") return os.homedir();
     const norm = path.normalize(
       p.startsWith("~/")
         ? path.join(os.homedir(), p.slice(2))
@@ -87,22 +86,16 @@ function parsePartial(cwd: string, partial: string): { base: string; filter: str
           ? p
           : path.resolve(cwd, p),
     );
-    if (fs.existsSync(norm) && fs.statSync(norm).isDirectory()) {
-      return { base: norm, filter: "" };
-    }
+    if (fs.existsSync(norm) && fs.statSync(norm).isDirectory()) return norm;
     let test = norm;
-    const skipped: string[] = [];
     while (true) {
       const parent = path.dirname(test);
-      if (parent === test) return { base: cwd, filter: norm };
-      if (fs.existsSync(test) && fs.statSync(test).isDirectory()) {
-        return { base: test, filter: skipped.join(path.sep) };
-      }
-      skipped.unshift(path.basename(test));
+      if (parent === test) return cwd;
+      if (fs.existsSync(test) && fs.statSync(test).isDirectory()) return test;
       test = parent;
     }
   } catch {
-    return { base: cwd, filter: p };
+    return cwd;
   }
 }
 
@@ -200,23 +193,17 @@ function openPicker(api: TuiPluginApi): void {
 
 function browse(api: TuiPluginApi, cmd: string, partial: string): void {
   const cwd = sessionDir(api);
-  const { base, filter } = parsePartial(cwd, partial);
-  let current = base;
-  let activeFilter = filter;
+  let current = resolveStart(cwd, partial);
   pickLog(api, "browse start", {
     cmd,
     partial,
     cwd,
-    base,
-    filter,
-    exists: fs.existsSync(base),
+    base: current,
+    exists: fs.existsSync(current),
   });
 
   function render(): void {
-    const dirs = childDirs(current).filter((d) =>
-      activeFilter ? d.toLowerCase().startsWith(activeFilter.toLowerCase()) : true,
-    );
-    const pending = activeFilter ? path.join(current, activeFilter) : current;
+    const dirs = childDirs(current);
 
     function pick(rel: string): void {
       const ref = promptRef;
@@ -245,11 +232,11 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
 
     const options = [
       {
-        title: activeFilter ? `[use ${activeFilter}]` : "[use this directory]",
-        description: displayPath(cwd, pending),
+        title: "[use this directory]",
+        description: displayPath(cwd, current),
         value: { kind: "pick" } as Opt,
         onSelect: () => {
-          pick(displayPath(cwd, pending));
+          pick(displayPath(cwd, current));
         },
       },
       ...(isRoot(current)
@@ -261,7 +248,6 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
               value: { kind: "up" } as Opt,
               onSelect: () => {
                 current = path.dirname(current);
-                activeFilter = "";
                 render();
               },
             },
@@ -271,7 +257,6 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
         value: { kind: "dir", name } as Opt,
         onSelect: () => {
           current = path.join(current, name);
-          activeFilter = "";
           render();
         },
       })),
@@ -279,11 +264,7 @@ function browse(api: TuiPluginApi, cmd: string, partial: string): void {
 
     api.ui.dialog.replace(() => (
       <api.ui.DialogSelect
-        title={
-          activeFilter
-            ? `Pick directory (filter "${activeFilter}"): ${displayPath(cwd, current)}`
-            : `Pick directory: ${displayPath(cwd, current)}`
-        }
+        title={`Pick directory: ${displayPath(cwd, current)}`}
         options={options}
         placeholder="type to filter"
       />
