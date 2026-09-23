@@ -1,6 +1,6 @@
 import { Database } from "./db.js"
 import { resolve, join, isAbsolute, relative } from "path"
-import { existsSync, realpathSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, realpathSync, readFileSync, writeFileSync, statSync, type Stats } from "fs"
 import { execSync, execFile } from "child_process"
 import { promisify } from "util"
 import { homedir } from "os"
@@ -684,8 +684,15 @@ export function resolveTarget(targetPath: string): { dir: string; projectId: str
   const isWinAbs = /^[A-Za-z]:[\\/]/.test(cleaned)
   const dir = isWinAbs ? cleaned.replace(/\//g, "\\") : resolve(cleaned)
 
-  if (!existsSync(dir)) {
+  let st: Stats | null = null
+  try {
+    st = statSync(dir)
+  } catch {}
+  if (!st) {
     throw new Error(`Directory does not exist: ${dir}`)
+  }
+  if (!st.isDirectory()) {
+    throw new Error(`Not a directory: ${dir}`)
   }
 
   const projectId = getInitialCommit(dir) ?? "global"

@@ -112,6 +112,18 @@ export const OpencodeDir: Plugin = async ({ client }) => {
     },
 
     "command.execute.before": async (input, output) => {
+      const setParts = (text: string | null) => {
+        output.parts.length = 0;
+        if (text !== null) {
+          output.parts.push({
+            type: "text",
+            id: "prt_" + Date.now(),
+            sessionID: input.sessionID,
+            messageID: "msg_" + Date.now(),
+            text,
+          });
+        }
+      };
       await log("opencode-dir command.execute.before", {
         command: input.command,
         sessionID: input.sessionID,
@@ -163,15 +175,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             mkdirSync(dirname(f), { recursive: true });
             writeFileSync(f, "init");
           } catch {}
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: "Vault init — enter passphrase in dialog.",
-            },
-          ];
+          setParts("Vault init — enter passphrase in dialog.");
           await client.tui
             .showToast({
               body: {
@@ -186,15 +190,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
         let pass = getVaultPass(input.sessionID);
         if (!pass) {
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: `Vault ${sub} failed: no passphrase set. Run /vault init to set one or set OPENCODE_DIR_VAULT_PASS.`,
-            },
-          ];
+          setParts(null);
           await client.tui
             .showToast({
               body: {
@@ -209,6 +205,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
         // prompt for passphrase via tui if not env
         if (!target && sub !== "list") {
+          setParts(null);
           await client.tui
             .showToast({
               body: {
@@ -223,17 +220,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
         if (sub === "init") {
           const r = vaultInit(target, pass);
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: r.ok
-                ? `Vault init: ${target} encrypted`
-                : `Error: ${r.error}`,
-            },
-          ];
+          if (!r.ok) setParts(null);
+          else setParts(`Vault init: ${target} encrypted`);
           await client.tui
             .showToast({
               body: {
@@ -250,17 +238,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           const db = new Database(getDbPath());
           try {
             const r = vaultOpen(db, input.sessionID, target, pass);
-            output.parts = [
-              {
-                type: "text",
-                id: "prt_" + Date.now(),
-                sessionID: input.sessionID,
-                messageID: "msg_" + Date.now(),
-                text: r.ok
-                  ? `Vault open: ${r.tmp} (session-scoped)`
-                  : `Error: ${r.error}`,
-              },
-            ];
+            if (!r.ok) setParts(null);
+            else setParts(`Vault open: ${r.tmp} (session-scoped)`);
             await client.tui
               .showToast({
                 body: {
@@ -280,15 +259,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           const db = new Database(getDbPath());
           try {
             const r = vaultClose(db, input.sessionID, target, pass);
-            output.parts = [
-              {
-                type: "text",
-                id: "prt_" + Date.now(),
-                sessionID: input.sessionID,
-                messageID: "msg_" + Date.now(),
-                text: r.ok ? `Vault closed: ${target}` : `Error: ${r.error}`,
-              },
-            ];
+            if (!r.ok) setParts(null);
+            else setParts(`Vault closed: ${target}`);
             await client.tui
               .showToast({
                 body: {
@@ -316,6 +288,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
       const targetPath = input.arguments.trim();
       if (!targetPath) {
+        setParts(null);
         await client.tui
           .showToast({
             body: {
@@ -336,6 +309,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             client.session.abort({ path: { id: input.sessionID } }),
           );
           if (!settled) {
+            setParts(null);
             await client.tui
               .showToast({
                 body: {
@@ -364,6 +338,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
 
         if (exec.result.startsWith("Error")) {
+          setParts(null);
           await client.tui
             .showToast({
               body: {
@@ -385,15 +360,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               },
             })
             .catch(() => {});
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: `${targetPath} added as a working directory`,
-            },
-          ];
+          setParts(`${targetPath} added as a working directory`);
         } else {
           await client.tui
             .showToast({
@@ -405,15 +372,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               },
             })
             .catch(() => {});
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: `${targetPath} added as a working directory`,
-            },
-          ];
+          setParts(`${targetPath} added as a working directory`);
         }
         return;
       }
@@ -429,6 +388,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
 
         if (ex.result.startsWith("Error")) {
+          setParts(null);
           await client.tui
             .showToast({
               body: {
@@ -453,15 +413,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               },
             })
             .catch(() => {});
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: ex.result,
-            },
-          ];
+          setParts(ex.result);
         } else {
           await client.tui
             .showToast({
@@ -473,15 +425,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               },
             })
             .catch(() => {});
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: ex.result,
-            },
-          ];
+          setParts(ex.result);
         }
         return;
       }
@@ -496,6 +440,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       }
 
       if (exec.result.startsWith("Error")) {
+        setParts(null);
         await client.tui
           .showToast({
             body: {
@@ -531,15 +476,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             },
           })
           .catch(() => {});
-        output.parts = [
-          {
-            type: "text",
-            id: "prt_" + Date.now(),
-            sessionID: input.sessionID,
-            messageID: "msg_" + Date.now(),
-            text: `working directory is now ${exec.newDir}`,
-          },
-        ];
+        setParts(`working directory is now ${exec.newDir}`);
       } else if (exec.result.includes("Already in")) {
         await client.tui
           .showToast({
@@ -551,15 +488,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             },
           })
           .catch(() => {});
-        output.parts = [
-          {
-            type: "text",
-            id: "prt_" + Date.now(),
-            sessionID: input.sessionID,
-            messageID: "msg_" + Date.now(),
-            text: `working directory is now ${targetPath}`,
-          },
-        ];
+        setParts(`working directory is now ${targetPath}`);
       }
     },
 
