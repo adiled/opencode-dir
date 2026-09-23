@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { Database } from "./db"
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from "fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync, symlinkSync } from "fs"
 import { execSync } from "child_process"
 import { join, relative } from "path"
 import { tmpdir } from "os"
@@ -14,6 +14,7 @@ import {
   getCurrentDirectory,
   getInitialCommit,
   resolveTarget,
+  UserError,
   execMove,
   execAddDir,
   execRemoveDir,
@@ -158,14 +159,17 @@ describe("getInitialCommit", () => {
 describe("resolveTarget", () => {
   let repo: string
   let nonGit: string
+  let hostile: string
 
   beforeEach(() => {
     repo = createGitRepo()
     nonGit = mkdtempSync(join(tmpdir(), "ocd-test-"))
+    hostile = mkdtempSync(join(tmpdir(), "ocd-hostile-"))
   })
   afterEach(() => {
     rmSync(repo, { recursive: true, force: true })
     rmSync(nonGit, { recursive: true, force: true })
+    rmSync(hostile, { recursive: true, force: true })
   })
 
   it("resolves a git repo to dir and projectId", () => {
@@ -179,6 +183,13 @@ describe("resolveTarget", () => {
     expect(() => resolveTarget("/no/such/path/xyz")).toThrow("does not exist")
   })
 
+  it("throws UserError for bad targets", () => {
+    expect(() => resolveTarget("/no/such/path/xyz")).toThrow(UserError)
+    const file = join(nonGit, "also-not-a-dir")
+    writeFileSync(file, "x")
+    expect(() => resolveTarget(file)).toThrow(UserError)
+  })
+
   it("throws for a file path instead of a directory", () => {
     const file = join(nonGit, "not-a-dir")
     writeFileSync(file, "x")
@@ -189,6 +200,55 @@ describe("resolveTarget", () => {
     const result = resolveTarget(nonGit)
     expect(result.dir).toBe(nonGit)
     expect(result.projectId).toBe("global")
+  })
+
+  it("resolves unicode and foreign-language directory names", () => {
+    const unicode = join(hostile, "проект-中文-日本語-العربية-😀")
+    mkdirSync(unicode, { recursive: true })
+    const result = resolveTarget(unicode)
+    expect(result.dir).toBe(unicode)
+  })
+
+  it("throws Not a directory for a unicode file", () => {
+    const file = join(hostile, "файл-文件-ملف")
+    writeFileSync(file, "x")
+    expect(() => resolveTarget(file)).toThrow("Not a directory")
+  })
+
+  it("resolves directories with spaces, parentheses, and quote characters", () => {
+    const dir = join(hostile, "my repo (café)")
+    mkdirSync(dir, { recursive: true })
+    expect(resolveTarget(`"${dir}"`).dir).toBe(dir)
+    expect(resolveTarget(dir).dir).toBe(dir)
+  })
+
+  it("normalizes a trailing slash", () => {
+    const result = resolveTarget(hostile + "/")
+    expect(result.dir).toBe(hostile)
+  })
+
+  it("follows a symlink to a directory", () => {
+    const link = join(hostile, "link")
+    symlinkSync(nonGit, link)
+    const result = resolveTarget(link)
+    expect(result.dir).toBe(link)
+  })
+
+  it("expands leading tilde against HOME", () => {
+    const savedHome = process.env.HOME
+    process.env.HOME = hostile
+    try {
+      mkdirSync(join(hostile, "tilde"))
+      const result = resolveTarget("~/tilde")
+      expect(result.dir).toBe(join(hostile, "tilde"))
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME
+      else process.env.HOME = savedHome
+    }
+  })
+
+  it("parses a windows double-paste path then fails on posix", () => {
+    expect(() => resolveTarget('C:\\foo\\"C:\\bar"')).toThrow("Directory does not exist")
   })
 })
 
@@ -632,6 +692,19 @@ describe("execMove", () => {
     expect(result.result).toContain("does not contain expected tables")
     emptyDb.close()
   })
+
+  it("marks bad targets as error status", () => {
+    const result = execMove("ses_1", "/no/such/path", false, db)
+    expect(result.status).toBe("error")
+    expect(result.result).toBe("Directory does not exist: /no/such/path")
+  })
+
+  it("marks already-in as info status", () => {
+    stubSession(db, "ses_1", "proj_old", repo)
+    const result = execMove("ses_1", repo, false, db)
+    expect(result.status).toBe("info")
+    expect(result.result).toContain("Already in")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -852,7 +925,8 @@ describe("execAddDir", () => {
     stubSession(db, "ses_1", "proj_1", "/work")
 
     const result = execAddDir("ses_1", "/no/such/path/xyz", db)
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
+    expect(result.result).toContain("does not exist")
   })
 
   it("allows adding multiple directories", () => {
@@ -1036,7 +1110,8 @@ describe("execRemoveDir", () => {
     stubSession(db, "ses_1", "proj_1", "/work")
 
     const result = execRemoveDir("ses_1", "/no/such/path/xyz", db)
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
+    expect(result.result).toContain("does not exist")
   })
 
   it("removes only the matching permission, leaves others intact", () => {

@@ -5,6 +5,8 @@ import { execSync, execFile } from "child_process"
 import { promisify } from "util"
 import { homedir } from "os"
 
+export class UserError extends Error {}
+
 // Guard: only allow execMove / execAddDir when called from within opencode's plugin system.
 let _pluginInitialized = false
 /** Marks this module as being used by opencode's plugin loader. */
@@ -689,10 +691,10 @@ export function resolveTarget(targetPath: string): { dir: string; projectId: str
     st = statSync(dir)
   } catch {}
   if (!st) {
-    throw new Error(`Directory does not exist: ${dir}`)
+    throw new UserError(`Directory does not exist: ${dir}`)
   }
   if (!st.isDirectory()) {
-    throw new Error(`Not a directory: ${dir}`)
+    throw new UserError(`Not a directory: ${dir}`)
   }
 
   const projectId = getInitialCommit(dir) ?? "global"
@@ -860,6 +862,7 @@ const alreadyLegacy = existing.some(
 
 export interface ExecResult {
   result: string
+  status?: "ok" | "info" | "error"
   oldDir?: string
   newDir?: string
 }
@@ -887,39 +890,38 @@ export function execMove(
 
     if (!hasSchema(db)) {
       const msg =
-        "Error: opencode database does not contain expected tables. " +
+        "opencode database does not contain expected tables. " +
         "The plugin may be opening a stale or wrong database file " +
         `(${getDbPath()}). Ensure opencode has been started at least once.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
-      const msg = `Error: session ${sessionId} not found in database.`
+      const msg = `session ${sessionId} not found in database.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     const currentDir = getCurrentDirectory(db, sessionId) ?? session.directory
     if (dir === currentDir) {
-      return { result: `Already in ${dir} - no change needed.` }
+      return { result: `Already in ${dir} - no change needed.`, status: "info" }
     }
 
     if (isGenerating(db, sessionId)) {
       const msg =
         "Session is currently generating a response - refusing to move it mid-turn.\n" +
         "Abort the running turn (Esc) or wait for it to complete, then run the command again."
-      reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     ensureProject(db, projectId, dir)
     const changes = updateSession(db, sessionId, dir, projectId)
     if (changes === 0) {
-      const msg = `Error: session ${sessionId} not found after update.`
+      const msg = `session ${sessionId} not found after update.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     // Write opencode's cache so it uses the same projectId
@@ -945,8 +947,11 @@ export function execMove(
     return { oldDir: currentDir, newDir: dir, result: lines.join("\n") }
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e))
-    reportError(err)
-    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
+    if (!(err instanceof UserError)) reportError(err)
+    return {
+      result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
+      status: "error",
+    }
   } finally {
     if (owned && db) db.close()
   }
@@ -974,8 +979,8 @@ export function execRemoveDir(
     dir = resolveTarget(targetPath).dir
   } catch (e: unknown) {
     const err = e instanceof Error ? e : new Error(String(e))
-    reportError(err)
-    return { result: `Error: ${err.message}` }
+    if (!(err instanceof UserError)) reportError(err)
+    return { result: err.message, status: "error" }
   }
 
   const owned = !db
@@ -986,23 +991,23 @@ export function execRemoveDir(
 
     if (!hasSchema(db)) {
       const msg =
-        "Error: opencode database does not contain expected tables. " +
+        "opencode database does not contain expected tables. " +
         "The plugin may be opening a stale or wrong database file " +
         `(${getDbPath()}). Ensure opencode has been started at least once.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
-      const msg = `Error: session ${sessionId} not found in database.`
+      const msg = `session ${sessionId} not found in database.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     const rowsRemoved = removeDirPermission(db, sessionId, dir)
     if (rowsRemoved === 0) {
-      return { result: `Directory ${dir} is not currently granted in this session.` }
+      return { result: `Directory ${dir} is not currently granted in this session.`, status: "info" }
     }
 
     return {
@@ -1013,12 +1018,13 @@ export function execRemoveDir(
     }
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e))
-    reportError(err)
-    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
-  } finally {
-    if (owned && db) {
-      db.close()
+    if (!(err instanceof UserError)) reportError(err)
+    return {
+      result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
+      status: "error",
     }
+  } finally {
+    if (owned && db) db.close()
   }
 }
 
@@ -1042,8 +1048,8 @@ export function execAddDir(
     dir = resolveTarget(targetPath).dir
   } catch (e: unknown) {
     const err = e instanceof Error ? e : new Error(String(e))
-    reportError(err)
-    return { result: `Error: ${err.message}` }
+    if (!(err instanceof UserError)) reportError(err)
+    return { result: err.message, status: "error" }
   }
 
   const owned = !db
@@ -1054,28 +1060,28 @@ export function execAddDir(
 
     if (!hasSchema(db)) {
       const msg =
-        "Error: opencode database does not contain expected tables. " +
+        "opencode database does not contain expected tables. " +
         "The plugin may be opening a stale or wrong database file " +
         `(${getDbPath()}). Ensure opencode has been started at least once.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
-      const msg = `Error: session ${sessionId} not found in database.`
+      const msg = `session ${sessionId} not found in database.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     const status = appendDirPermission(db, sessionId, dir)
     if (status === -1) {
-      return { result: `Directory ${dir} is already accessible in this session.` }
+      return { result: `Directory ${dir} is already accessible in this session.`, status: "info" }
     }
     if (status === 0) {
-      const msg = `Error: session ${sessionId} not found in database.`
+      const msg = `session ${sessionId} not found in database.`
       reportError(new Error(msg))
-      return { result: msg }
+      return { result: msg, status: "error" }
     }
 
     return {
@@ -1086,8 +1092,11 @@ export function execAddDir(
     }
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e))
-    reportError(err)
-    return { result: `Error: opencode-dir database operation failed - the plugin may need updating.` }
+    if (!(err instanceof UserError)) reportError(err)
+    return {
+      result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
+      status: "error",
+    }
   } finally {
     if (owned && db) db.close()
   }
