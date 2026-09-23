@@ -334,10 +334,15 @@ export function pickerView(api: TuiPluginApi): void {
         const r = promptRef;
         const input = r?.current?.input ?? "";
         if (input === lastSeen) return;
+        const prev = lastSeen;
         lastSeen = input;
         if (!/^\/(cd|mv|add-dir|remove-dir)\b.*\s+$/.test(input)) return;
         if (input === lastFired) return;
         if (!r?.current || !r.focused) return;
+        // Only the typing flow triggers the picker: exactly one trailing
+        // space was appended. Backspace towards a previous space (e.g. Esc
+        // then back from "/cd  " to "/cd ") must NOT re-open the dialog.
+        if (input.length !== prev.length + 1 || !input.endsWith(" ")) return;
         lastFired = input;
         openPicker(api);
       } catch {}
