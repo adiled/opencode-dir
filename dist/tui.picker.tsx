@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 /**
- * Directory picker for directory commands (/cd, /mv, /add-dir, /remove-dir).
+ * Directory picker for directory commands (/cd, /mv, /add-dir).
  *
  * - Typing `/cd <space>` (or any dir command + trailing space) opens the
  *   picker automatically; pressing tab mid-path (/cd Doc<tab>) works too.
@@ -21,8 +21,8 @@ import * as path from "node:path";
  * Logs through api.client.app.log (same /log stream as index.ts).
  */
 
-const CMD_RE = /^\/(cd|mv|add-dir|remove-dir)(?:\s+(.*))?\s*$/;
-const TARGET_CMDS = ["cd", "mv", "add-dir", "remove-dir"];
+const CMD_RE = /^\/(cd|mv|add-dir)(?:\s+(.*))?\s*$/;
+const TARGET_CMDS = ["cd", "mv", "add-dir"];
 
 let promptRef: TuiPromptRef | undefined;
 
@@ -349,7 +349,7 @@ export function pickerView(api: TuiPluginApi): void {
         if (input === lastSeen) return;
         const prev = lastSeen;
         lastSeen = input;
-        if (!/^\/(cd|mv|add-dir|remove-dir)\b.*\s+$/.test(input)) return;
+        if (!/^\/(cd|mv|add-dir)\b.*\s+$/.test(input)) return;
         if (input === lastFired) return;
         if (!r?.current || !r.focused) return;
         // Only the typing flow triggers the picker: exactly one trailing
