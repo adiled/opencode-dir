@@ -579,25 +579,27 @@ describe("e2e: error paths against real server DB", () => {
 
   it("/cd to nonexistent directory returns error", () => {
     const result = execMove(sessionId, "/tmp/does-not-exist-e2e-xyz", false)
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
+    expect(result.result).toContain("does not exist")
   })
 
   it("/mv with nonexistent session returns error", () => {
     const dir = makeGitRepo("err-target")
     const result = execMove("nonexistent-session-id", dir, true)
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
     expect(result.result).toContain("not found")
   })
 
   it("/add-dir to nonexistent directory returns error", () => {
     const result = execAddDir(sessionId, "/tmp/does-not-exist-e2e-xyz")
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
+    expect(result.result).toContain("does not exist")
   })
 
   it("/add-dir with nonexistent session returns error", () => {
     const dir = makePlainDir("err-extra")
     const result = execAddDir("nonexistent-session-id", dir)
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
     expect(result.result).toContain("not found")
   })
 })

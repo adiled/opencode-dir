@@ -8,6 +8,7 @@ import { homedir } from "os";
 import {
   type Override,
   type ExecResult,
+  UserError,
   loadOverrides,
   persistOverrides,
   execMove,
@@ -333,11 +334,11 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           exec = execAddDir(input.sessionID, targetPath);
         } catch (e: unknown) {
           const err = e instanceof Error ? e : new Error(String(e));
-          reportError(err);
-          exec = { result: `Error: ${err.message}` };
+          if (!(err instanceof UserError)) reportError(err);
+          exec = { result: err.message, status: "error" };
         }
 
-        if (exec.result.startsWith("Error")) {
+        if (exec.status === "error") {
           setParts(null);
           await client.tui
             .showToast({
@@ -349,7 +350,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
               },
             })
             .catch(() => {});
-        } else if (exec.result.includes("already accessible")) {
+        } else if (exec.status === "info") {
           await client.tui
             .showToast({
               body: {
@@ -383,11 +384,11 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           ex = execRemoveDir(input.sessionID, targetPath);
         } catch (e: unknown) {
           const err = e instanceof Error ? e : new Error(String(e));
-          reportError(err);
-          ex = { result: `Error: ${err.message}` };
+          if (!(err instanceof UserError)) reportError(err);
+          ex = { result: err.message, status: "error" };
         }
 
-        if (ex.result.startsWith("Error")) {
+        if (ex.status === "error") {
           setParts(null);
           await client.tui
             .showToast({
@@ -402,7 +403,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           return;
         }
 
-        if (ex.result.includes("not currently granted")) {
+        if (ex.status === "info") {
           await client.tui
             .showToast({
               body: {
@@ -435,11 +436,11 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         exec = execMove(input.sessionID, targetPath, input.command === "mv");
       } catch (e: unknown) {
         const err = e instanceof Error ? e : new Error(String(e));
-        reportError(err);
-        exec = { result: `Error: ${err.message}` };
+        if (!(err instanceof UserError)) reportError(err);
+        exec = { result: err.message, status: "error" };
       }
 
-      if (exec.result.startsWith("Error")) {
+      if (exec.status === "error") {
         setParts(null);
         await client.tui
           .showToast({
@@ -477,7 +478,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           })
           .catch(() => {});
         setParts(`working directory is now ${exec.newDir}`);
-      } else if (exec.result.includes("Already in")) {
+      } else if (exec.status === "info") {
         await client.tui
           .showToast({
             body: {

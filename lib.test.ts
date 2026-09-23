@@ -14,6 +14,7 @@ import {
   getCurrentDirectory,
   getInitialCommit,
   resolveTarget,
+  UserError,
   execMove,
   execAddDir,
   execRemoveDir,
@@ -180,6 +181,13 @@ describe("resolveTarget", () => {
 
   it("throws for nonexistent directory", () => {
     expect(() => resolveTarget("/no/such/path/xyz")).toThrow("does not exist")
+  })
+
+  it("throws UserError for bad targets", () => {
+    expect(() => resolveTarget("/no/such/path/xyz")).toThrow(UserError)
+    const file = join(nonGit, "also-not-a-dir")
+    writeFileSync(file, "x")
+    expect(() => resolveTarget(file)).toThrow(UserError)
   })
 
   it("throws for a file path instead of a directory", () => {
@@ -684,6 +692,19 @@ describe("execMove", () => {
     expect(result.result).toContain("does not contain expected tables")
     emptyDb.close()
   })
+
+  it("marks bad targets as error status", () => {
+    const result = execMove("ses_1", "/no/such/path", false, db)
+    expect(result.status).toBe("error")
+    expect(result.result).toBe("Directory does not exist: /no/such/path")
+  })
+
+  it("marks already-in as info status", () => {
+    stubSession(db, "ses_1", "proj_old", repo)
+    const result = execMove("ses_1", repo, false, db)
+    expect(result.status).toBe("info")
+    expect(result.result).toContain("Already in")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -904,7 +925,8 @@ describe("execAddDir", () => {
     stubSession(db, "ses_1", "proj_1", "/work")
 
     const result = execAddDir("ses_1", "/no/such/path/xyz", db)
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
+    expect(result.result).toContain("does not exist")
   })
 
   it("allows adding multiple directories", () => {
@@ -1088,7 +1110,8 @@ describe("execRemoveDir", () => {
     stubSession(db, "ses_1", "proj_1", "/work")
 
     const result = execRemoveDir("ses_1", "/no/such/path/xyz", db)
-    expect(result.result).toContain("Error")
+    expect(result.status).toBe("error")
+    expect(result.result).toContain("does not exist")
   })
 
   it("removes only the matching permission, leaves others intact", () => {
