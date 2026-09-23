@@ -179,6 +179,12 @@ describe("resolveTarget", () => {
     expect(() => resolveTarget("/no/such/path/xyz")).toThrow("does not exist")
   })
 
+  it("throws for a file path instead of a directory", () => {
+    const file = join(nonGit, "not-a-dir")
+    writeFileSync(file, "x")
+    expect(() => resolveTarget(file)).toThrow("Not a directory")
+  })
+
   it("resolves non-git directory with global projectId", () => {
     const result = resolveTarget(nonGit)
     expect(result.dir).toBe(nonGit)
