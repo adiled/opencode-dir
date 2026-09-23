@@ -186,15 +186,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
         let pass = getVaultPass(input.sessionID);
         if (!pass) {
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: `Vault ${sub} failed: no passphrase set. Run /vault init to set one or set OPENCODE_DIR_VAULT_PASS.`,
-            },
-          ];
+          output.parts = [];
           await client.tui
             .showToast({
               body: {
@@ -209,6 +201,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
         // prompt for passphrase via tui if not env
         if (!target && sub !== "list") {
+          output.parts = [];
           await client.tui
             .showToast({
               body: {
@@ -223,17 +216,17 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
         if (sub === "init") {
           const r = vaultInit(target, pass);
-          output.parts = [
-            {
-              type: "text",
-              id: "prt_" + Date.now(),
-              sessionID: input.sessionID,
-              messageID: "msg_" + Date.now(),
-              text: r.ok
-                ? `Vault init: ${target} encrypted`
-                : `Error: ${r.error}`,
-            },
-          ];
+          if (!r.ok) output.parts = [];
+          else
+            output.parts = [
+              {
+                type: "text",
+                id: "prt_" + Date.now(),
+                sessionID: input.sessionID,
+                messageID: "msg_" + Date.now(),
+                text: `Vault init: ${target} encrypted`,
+              },
+            ];
           await client.tui
             .showToast({
               body: {
@@ -250,17 +243,17 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           const db = new Database(getDbPath());
           try {
             const r = vaultOpen(db, input.sessionID, target, pass);
-            output.parts = [
-              {
-                type: "text",
-                id: "prt_" + Date.now(),
-                sessionID: input.sessionID,
-                messageID: "msg_" + Date.now(),
-                text: r.ok
-                  ? `Vault open: ${r.tmp} (session-scoped)`
-                  : `Error: ${r.error}`,
-              },
-            ];
+            if (!r.ok) output.parts = [];
+            else
+              output.parts = [
+                {
+                  type: "text",
+                  id: "prt_" + Date.now(),
+                  sessionID: input.sessionID,
+                  messageID: "msg_" + Date.now(),
+                  text: `Vault open: ${r.tmp} (session-scoped)`,
+                },
+              ];
             await client.tui
               .showToast({
                 body: {
@@ -280,15 +273,17 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           const db = new Database(getDbPath());
           try {
             const r = vaultClose(db, input.sessionID, target, pass);
-            output.parts = [
-              {
-                type: "text",
-                id: "prt_" + Date.now(),
-                sessionID: input.sessionID,
-                messageID: "msg_" + Date.now(),
-                text: r.ok ? `Vault closed: ${target}` : `Error: ${r.error}`,
-              },
-            ];
+            if (!r.ok) output.parts = [];
+            else
+              output.parts = [
+                {
+                  type: "text",
+                  id: "prt_" + Date.now(),
+                  sessionID: input.sessionID,
+                  messageID: "msg_" + Date.now(),
+                  text: `Vault closed: ${target}`,
+                },
+              ];
             await client.tui
               .showToast({
                 body: {
@@ -316,6 +311,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
       const targetPath = input.arguments.trim();
       if (!targetPath) {
+        output.parts = [];
         await client.tui
           .showToast({
             body: {
@@ -336,6 +332,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
             client.session.abort({ path: { id: input.sessionID } }),
           );
           if (!settled) {
+            output.parts = [];
             await client.tui
               .showToast({
                 body: {
@@ -364,6 +361,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
 
         if (exec.result.startsWith("Error")) {
+          output.parts = [];
           await client.tui
             .showToast({
               body: {
@@ -429,6 +427,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         }
 
         if (ex.result.startsWith("Error")) {
+          output.parts = [];
           await client.tui
             .showToast({
               body: {
@@ -496,6 +495,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       }
 
       if (exec.result.startsWith("Error")) {
+        output.parts = [];
         await client.tui
           .showToast({
             body: {
