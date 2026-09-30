@@ -1,6 +1,8 @@
-import { appendFileSync, mkdirSync } from "fs"
+import { appendFileSync, mkdirSync, writeFileSync } from "fs"
 import { homedir } from "os"
-import { dirname, resolve } from "path"
+import { dirname, isAbsolute, join, relative, resolve } from "path"
+import { randomUUID } from "crypto"
+import { createRequire } from "module"
 
 export type V2Effect = "allow" | "deny" | "ask"
 export type V2Rule = { action: string; resource: string; effect: V2Effect }
@@ -26,6 +28,7 @@ export interface V2CommandEditor {
 
 export interface V2SessionInfo {
   id: string
+  projectID?: string
   location: { directory: string; workspaceID?: string }
   permissions?: V2Ruleset
 }
@@ -133,6 +136,164 @@ export interface V2Deps {
   resolveDir: (raw: string) => { dir: string }
   overrides: Map<string, string>
   persistOverrides: (map: Map<string, string>) => void
+  openDb?: () => unknown
+}
+
+export function getV2DbPath(): string {
+  return resolve(getDataDir(), "opencode.db")
+}
+
+export function openV2Db(): V2DbLike {
+  const mod = createRequire(import.meta.url)("./db.js") as { Database: new (path: string) => V2DbLike }
+  return new mod.Database(getV2DbPath())
+}
+
+export interface V2SessionRow {
+  directory: string | null
+  project_id: string | null
+  path: string | null
+  permission: string | null
+}
+
+export interface V2ProjectRow {
+  id: string
+  worktree: string | null
+}
+
+export interface V2DbLike {
+  query(sql: string): {
+    all(...args: unknown[]): unknown[]
+    get(...args: unknown[]): unknown
+  }
+  run(sql: string, args?: unknown[]): { changes: number }
+  transaction<T>(cb: () => T): () => T
+  close(): void
+}
+
+export function v2SubpathFor(worktree: string | null | undefined, dir: string): string | null {
+  if (!worktree) return null
+  const rel = relative(worktree, dir).replaceAll("\\", "/")
+  if (rel === ".." || rel.startsWith("../") || isAbsolute(rel)) return null
+  return rel
+}
+
+export function v2UpdateSession(
+  db: V2DbLike,
+  sessionId: string,
+  newDir: string,
+  newProjectId: string,
+): number {
+  const existing = readV2Rules(sessionId, db)
+  const pattern = externalDirectoryResource(newDir)
+  const already = existing.some((r) => r.action === "external_directory" && r.resource === pattern)
+  if (!already) {
+    existing.push({ action: "external_directory", resource: pattern, effect: "allow" })
+  }
+  const permission = JSON.stringify(existing)
+  const project = db
+    .query("SELECT id, worktree FROM project WHERE id = ?")
+    .get(newProjectId) as V2ProjectRow | undefined
+  const subpath = v2SubpathFor(project?.worktree, newDir)
+  let changes = 0
+  const tx = db.transaction(() => {
+    changes = db.run(
+      "UPDATE session_v2 SET directory = ?, project_id = ?, path = ?, permission = ?, time_updated = ? WHERE id = ?",
+      [newDir, newProjectId, subpath, permission, Date.now(), sessionId],
+    ).changes
+    if (changes > 0) {
+      const row = db
+        .query(
+          "SELECT id FROM permission WHERE project_id = ? AND action = 'external_directory' AND resource = ?",
+        )
+        .get(newProjectId, pattern) as { id: string } | undefined
+      if (!row) {
+        const id = `per_${randomUUID().replace(/-/g, "").slice(0, 16)}`
+        const now = Date.now()
+        db.run(
+          "INSERT INTO permission (id, project_id, action, resource, time_created, time_updated) VALUES (?, ?, 'external_directory', ?, ?, ?)",
+          [id, newProjectId, pattern, now, now],
+        )
+      }
+    }
+  })
+  tx()
+  return changes
+}
+
+export function ensureV2Project(db: V2DbLike, worktree: string): string {
+  const found = db.query("SELECT id, worktree FROM project WHERE worktree = ?").get(worktree) as
+    | V2ProjectRow
+    | undefined
+  if (found) return found.id
+  const id = `prj_${randomUUID().replace(/-/g, "").slice(0, 16)}`
+  const now = Date.now()
+  db.run(
+    "INSERT INTO project (id, worktree, vcs, time_created, time_updated, time_active, sandboxes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [id, worktree, "git", now, now, 0, "[]"],
+  )
+  return id
+}
+
+export function readV2SessionRow(db: V2DbLike, sessionId: string): V2SessionRow | undefined {
+  return db
+    .query("SELECT directory, project_id, path, permission FROM session_v2 WHERE id = ?")
+    .get(sessionId) as V2SessionRow | undefined
+}
+
+export function readV2Rules(sessionId: string, db: V2DbLike): V2Rule[] {
+  const row = readV2SessionRow(db, sessionId)
+  if (!row?.permission) return []
+  try {
+    const parsed = JSON.parse(row.permission)
+    return Array.isArray(parsed) ? (parsed as V2Rule[]) : []
+  } catch {
+    return []
+  }
+}
+
+export function v2RewriteMessages(
+  db: V2DbLike,
+  sessionId: string,
+  oldDir: string,
+  newDir: string,
+): { total: number; rewritten: number; skipped: number } {
+  const messages = db
+    .query("SELECT id, data FROM session_message WHERE session_id = ?")
+    .all(sessionId) as { id: string; data: string }[]
+
+  let rewritten = 0
+  let skipped = 0
+  const tx = db.transaction(() => {
+    for (const msg of messages) {
+      let data: Record<string, any>
+      try {
+        data = JSON.parse(msg.data)
+      } catch {
+        continue
+      }
+      if (data.role === "assistant" && data.time?.created !== undefined && data.time?.completed === undefined) {
+        skipped++
+        continue
+      }
+      let changed = false
+      if (data.path) {
+        if (data.path.cwd === oldDir) {
+          data.path.cwd = newDir
+          changed = true
+        }
+        if (data.path.root === oldDir) {
+          data.path.root = newDir
+          changed = true
+        }
+      }
+      if (changed) {
+        db.run("UPDATE session_message SET data = ? WHERE id = ?", [JSON.stringify(data), msg.id])
+        rewritten++
+      }
+    }
+  })
+  tx()
+  return { total: messages.length, rewritten, skipped }
 }
 
 function usage(command: string): V2Outcome {
@@ -167,22 +328,57 @@ export async function runV2Command(
   v2Log({ event: "command.resolved", command, sessionID, target, dir })
 
   if (command === "cd" || command === "mv") {
-    let current = ""
+    let info: V2SessionInfo | null = null
     try {
-      current = (await ctx.session.get({ sessionID })).location.directory
+      info = await ctx.session.get({ sessionID })
     } catch (e) {
       v2Log({ event: "session.get.failed", command, sessionID, result: String(e) })
     }
 
+    const current = info?.location.directory ?? ""
+    if (current && current === dir) {
+      v2Log({ event: "session.move.skip", command, sessionID, dir })
+      return { status: "info", result: `Already in ${dir} - no change needed.` }
+    }
+
+    if (!deps.openDb) {
+      const msg = "opencode-dir database is unavailable - cannot move this session."
+      v2Log({ event: "session.move.failed", command, sessionID, from: current, to: dir, result: msg })
+      return { status: "error", result: msg }
+    }
+
+    let changes = 0
+    let rewriteStats = { total: 0, rewritten: 0, skipped: 0 }
     try {
-      await ctx.session.move({ sessionID, directory: dir, delivery: invocation.delivery })
+      const db = deps.openDb() as V2DbLike
+      try {
+        const projectId = ensureV2Project(db, dir)
+        changes = v2UpdateSession(db, sessionID, dir, projectId)
+        if (changes === 0) {
+          const msg = `session ${sessionID} not found in database.`
+          v2Log({ event: "session.move.failed", command, sessionID, from: current, to: dir, result: msg })
+          return { status: "error", result: msg }
+        }
+        if (command === "mv" && current) {
+          rewriteStats = v2RewriteMessages(db, sessionID, current, dir)
+          v2Log({ event: "messages.rewritten", command, sessionID, ...rewriteStats })
+        }
+        try {
+          writeFileSync(join(dir, ".git", "opencode"), projectId)
+        } catch {}
+      } finally {
+        db.close()
+      }
     } catch (e) {
       const result = e instanceof Error ? e.message : String(e)
       v2Log({ event: "session.move.failed", command, sessionID, from: current, to: dir, result })
-      return { status: "error", result: `Could not move session: ${result}` }
+      return {
+        status: "error",
+        result: "opencode-dir database operation failed - the plugin may need updating.",
+      }
     }
 
-    v2Log({ event: "session.move.ok", command, sessionID, from: current, to: dir })
+    v2Log({ event: "session.move.ok", command, sessionID, from: current, to: dir, changes })
 
     if (current && current !== dir) {
       deps.overrides.set(sessionID, dir)
@@ -190,7 +386,17 @@ export async function runV2Command(
       v2Log({ event: "override.set", sessionID, from: current, to: dir, count: deps.overrides.size })
     }
 
-    return { status: "ok", result: `working directory is now ${dir}` }
+    const lines: string[] =
+      command === "mv"
+        ? [
+            `Session moved: ${current} -> ${dir}`,
+            `Messages: ${rewriteStats.rewritten}/${rewriteStats.total} rewritten${
+              rewriteStats.skipped > 0 ? `, ${rewriteStats.skipped} skipped (in-flight turn)` : ""
+            }`,
+          ]
+        : [`Session directory changed: ${current} -> ${dir}`]
+    lines.push("", `Tools will now operate in ${dir} for this session.`)
+    return { status: "ok", result: lines.join("\n") }
   }
 
   let rules: V2Ruleset = []

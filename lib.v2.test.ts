@@ -62,16 +62,84 @@ function mockCtx(overrides: Partial<Record<string, unknown>> = {}) {
   return Object.assign(ctx, overrides)
 }
 
-function deps() {
-  const overrides = new Map<string, string>()
+function fakeDb(rows: Record<string, any> = {}) {
+  const sessions = new Map<string, any>(Object.entries(rows))
+  const messages: { id: string; session_id: string; data: string }[] = []
+  const projects = new Map<string, any>()
+  const permissions: any[] = []
+  const db: any = {
+    sessions,
+    messages,
+    projects,
+    permissions,
+    query(sql: string) {
+      if (sql.includes("FROM project WHERE worktree")) {
+        return {
+          get: (...args: unknown[]) => {
+            for (const p of projects.values()) if (p.worktree === args[0]) return p
+            return undefined
+          },
+        }
+      }
+      if (sql.includes("FROM session_v2 WHERE id")) {
+        return { get: (id: unknown) => sessions.get(id as string) }
+      }
+      if (sql.includes("FROM session_message WHERE session_id")) {
+        return { all: (sid: unknown) => messages.filter((m) => m.session_id === sid) }
+      }
+      if (sql.includes("SELECT id FROM permission")) {
+        return { get: () => undefined }
+      }
+      return { all: () => [], get: () => undefined }
+    },
+    run(sql: string, args: unknown[] = []) {
+      if (sql.startsWith("UPDATE session_v2")) {
+        const row = sessions.get(args[5] as string)
+        if (!row) return { changes: 0 }
+        Object.assign(row, {
+          directory: args[0],
+          project_id: args[1],
+          path: args[2],
+          permission: args[3],
+          time_updated: args[4],
+        })
+        return { changes: 1 }
+      }
+      if (sql.startsWith("INSERT INTO project")) {
+        const id = args[0] as string
+        projects.set(id, { id, worktree: args[1] })
+        return { changes: 1 }
+      }
+      if (sql.startsWith("UPDATE session_message")) {
+        const msg = messages.find((m) => m.id === args[1])
+        if (msg) msg.data = args[0] as string
+        return { changes: 1 }
+      }
+      return { changes: 1 }
+    },
+    transaction<T>(cb: () => T) {
+      return () => cb()
+    },
+    close() {},
+  }
+  return db
+}
+
+function deps(overrides: Record<string, any> = {}, dbRows: Record<string, any> = {}) {
+  const store = new Map<string, string>()
   let persisted = 0
+  const db = fakeDb(dbRows)
   return {
-    overrides,
+    overrides: store,
     persisted: () => persisted,
+    db,
+    sessions: db.sessions,
     resolveDir: (raw: string) => ({ dir: raw.startsWith("/") ? raw : `/resolved/${raw}` }),
     persistOverrides: () => {
       persisted++
     },
+    openDb: () => db,
+    ...overrides,
   }
 }
 
@@ -170,16 +238,23 @@ describe("v2 command execution", () => {
 
   beforeEach(() => {
     ctx = mockCtx()
-    d = deps()
+    d = deps({}, { ses_1: { id: "ses_1", directory: "/from", project_id: "prj_a", path: null, permission: null } })
   })
 
   const invoke = (command: string, text: string) => ({ sessionID: "ses_1", prompt: { text }, delivery: "steer" as const })
 
-  it("cd moves the session to the resolved directory", async () => {
+  it("cd writes the new directory straight to the database", async () => {
     const out = await runV2Command(d, ctx, "cd", invoke("cd", "/target"))
     expect(out.status).toBe("ok")
-    expect(ctx.calls.move).toEqual([{ sessionID: "ses_1", directory: "/target", delivery: "steer" }])
+    expect(d.sessions.get("ses_1").directory).toBe("/target")
+    expect(ctx.calls.move).toHaveLength(0)
     expect(ctx.calls.update).toHaveLength(0)
+  })
+
+  it("cd grants the new directory an external_directory rule", async () => {
+    await runV2Command(d, ctx, "cd", invoke("cd", "/target"))
+    const perms = JSON.parse(d.sessions.get("ses_1").permission)
+    expect(perms).toEqual([{ action: "external_directory", resource: "/target/*", effect: "allow" }])
   })
 
   it("cd records an override for tool and shell injection", async () => {
@@ -188,21 +263,42 @@ describe("v2 command execution", () => {
     expect(d.persisted()).toBe(1)
   })
 
-  it("mv behaves like cd", async () => {
+  it("mv moves the directory like cd", async () => {
     const out = await runV2Command(d, ctx, "mv", invoke("mv", "/target"))
     expect(out.status).toBe("ok")
-    expect(ctx.calls.move).toHaveLength(1)
+    expect(d.sessions.get("ses_1").directory).toBe("/target")
   })
 
-  it("never rewrites history on a move", async () => {
-    await runV2Command(d, ctx, "mv", invoke("mv", "/target"))
-    expect(ctx.calls.update).toHaveLength(0)
-    expect(ctx.calls.synthetic).toHaveLength(0)
+  it("cd leaves message history untouched", async () => {
+    d.db.messages.push({ id: "m1", session_id: "ses_1", data: JSON.stringify({ role: "assistant", path: { cwd: "/from", root: "/from" } }) })
+    await runV2Command(d, ctx, "cd", invoke("cd", "/target"))
+    expect(JSON.parse(d.db.messages[0].data).path.cwd).toBe("/from")
+  })
+
+  it("mv rewrites path.cwd and path.root in message history", async () => {
+    d.db.messages.push({ id: "m1", session_id: "ses_1", data: JSON.stringify({ role: "assistant", path: { cwd: "/from", root: "/from" } }) })
+    const out = await runV2Command(d, ctx, "mv", invoke("mv", "/target"))
+    expect(out.status).toBe("ok")
+    const data = JSON.parse(d.db.messages[0].data)
+    expect(data.path.cwd).toBe("/target")
+    expect(data.path.root).toBe("/target")
+    expect(out.result).toContain("1/1 rewritten")
+  })
+
+  it("mv skips an in-flight turn", async () => {
+    d.db.messages.push({
+      id: "m1",
+      session_id: "ses_1",
+      data: JSON.stringify({ role: "assistant", time: { created: 1 }, path: { cwd: "/from", root: "/from" } }),
+    })
+    const out = await runV2Command(d, ctx, "mv", invoke("mv", "/target"))
+    expect(JSON.parse(d.db.messages[0].data).path.cwd).toBe("/from")
+    expect(out.result).toContain("1 skipped")
   })
 
   it("no-ops the override when the directory is unchanged", async () => {
     const out = await runV2Command(d, ctx, "cd", invoke("cd", "/from"))
-    expect(out.status).toBe("ok")
+    expect(out.status).toBe("info")
     expect(d.overrides.has("ses_1")).toBe(false)
     expect(d.persisted()).toBe(0)
   })
@@ -281,14 +377,22 @@ describe("v2 command execution", () => {
     expect(ctx.calls.update).toHaveLength(0)
   })
 
-  it("reports a host move failure", async () => {
-    const broken = mockCtx()
-    broken.session.move = async () => {
-      throw new Error("Destination directory belongs to another project")
-    }
-    const out = await runV2Command(d, broken, "cd", invoke("cd", "/other"))
+  it("reports a missing session row", async () => {
+    const empty = deps({}, {})
+    const out = await runV2Command(empty, mockCtx(), "cd", invoke("cd", "/other"))
     expect(out.status).toBe("error")
-    expect(out.result).toContain("another project")
+    expect(out.result).toContain("not found in database")
+  })
+
+  it("reports a database failure", async () => {
+    const broken = deps({
+      openDb: () => {
+        throw new Error("database is locked")
+      },
+    })
+    const out = await runV2Command(broken, mockCtx(), "cd", invoke("cd", "/other"))
+    expect(out.status).toBe("error")
+    expect(out.result).toContain("database operation failed")
   })
 
   it("reports a host update failure", async () => {
@@ -314,7 +418,7 @@ describe("v2 setup", () => {
 
   it("surfaces the outcome to the user as a synthetic message", async () => {
     const ctx = mockCtx()
-    const d = deps()
+    const d = deps({}, { ses_1: { id: "ses_1", directory: "/from", project_id: "prj_a", path: null, permission: null } })
     const commands = buildV2Commands(d, ctx)
     const cd = commands[0]!
     await cd.execute({ sessionID: "ses_1", prompt: { text: "/target" }, delivery: "steer" })

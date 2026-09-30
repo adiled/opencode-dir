@@ -45,7 +45,8 @@
     "access": "public"
   },
   "engines": {
-    "opencode": ">=1.18.0"
+    "opencode": ">=1.18.0",
+    "opencode2": ">=2.0.20"
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.4.3",

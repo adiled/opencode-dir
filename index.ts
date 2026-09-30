@@ -584,10 +584,21 @@ const v2Overrides = new Map<string, string>();
 for (const [sessionID, override] of dirOverrides) v2Overrides.set(sessionID, override.newDir);
 
 const V2Setup = async (ctx: unknown) => {
-  const { setupV2 } = await import("./lib.v2.js");
+  const host = ctx as { app?: { version?: string } };
+  const { v2Log: v2log } = await import("./lib.v2.js");
+  const hasV2Surface =
+    typeof (ctx as { command?: { transform?: unknown } })?.command?.transform === "function" &&
+    typeof (ctx as { session?: { get?: unknown } })?.session?.get === "function" &&
+    typeof (ctx as { shell?: { hook?: unknown } })?.shell?.hook === "function";
+  if (!hasV2Surface) {
+    v2log({ event: "setup.skipped", reason: "host lacks the v2 session/shell surface", app: host?.app });
+    return () => {};
+  }
+  const { setupV2, openV2Db } = await import("./lib.v2.js");
   const instance = await setupV2(ctx as Parameters<typeof setupV2>[0], {
     resolveDir: (raw: string) => ({ dir: resolveTarget(raw).dir }),
     overrides: v2Overrides,
+    openDb: openV2Db,
     persistOverrides: () => {
       for (const [sessionID, dir] of v2Overrides) dirOverrides.set(sessionID, { oldDir: dir, newDir: dir });
       persistOverrides(OVERRIDES_FILE, dirOverrides);
