@@ -504,8 +504,8 @@ function v2Runtime(binary: string): Runtime {
         },
         apiPermissions: async (sessionID) => {
           const res = await fetch(`${url}/api/session/${sessionID}`, { headers: headers() })
-          const data = (await res.json()) as { data: { permission?: unknown } }
-          const raw = data.data.permission
+          const data = (await res.json()) as { data: { permissions?: unknown } }
+          const raw = data.data.permissions
           if (!raw) return []
           if (typeof raw === "string") {
             try {
