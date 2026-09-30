@@ -52,10 +52,18 @@ describe("tui", () => {
   it("registers sidebar_footer with order 50", async () => {
     const { api, slots } = mockApi()
     await tui(api)
-    expect(slots).toHaveLength(1)
     const footer = slots.find((s) => s.slots.sidebar_footer)
     expect(footer.order).toBe(50)
     expect(footer.slots.sidebar_footer).toBeDefined()
+  })
+
+  it("directory picker registers prompt slots alongside the footer", async () => {
+    const { api, slots } = mockApi()
+    await tui(api)
+    const prompts = slots.find((s) => s.slots.session_prompt || s.slots.home_prompt)
+    expect(prompts).toBeDefined()
+    expect(prompts.slots.session_prompt).toBeDefined()
+    expect(prompts.slots.home_prompt).toBeDefined()
   })
 
   it("has correct plugin id opencode-dir", async () => {
