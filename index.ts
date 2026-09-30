@@ -1,5 +1,4 @@
 import { type Plugin } from "@opencode-ai/plugin";
-import type { Plugin as PromisePlugin } from "@opencode-ai/plugin/v2/promise";
 // NOTE: lib.protocol is imported lazily (see config hook and V2Setup below)
 // so a packaging slip can never again kill the whole plugin at load time
 // (issues #22/#23: v1.2.4 omitted lib.protocol.ts from npm `files`).
@@ -26,6 +25,7 @@ import {
   getSessionInfo,
   getDbPath,
   waitForSettled,
+  resolveTarget,
 } from "./lib.js";
 import { vaultInit, vaultOpen, vaultClose } from "./lib.vault.js";
 import { Database } from "./db.js";
@@ -580,21 +580,20 @@ export const OpencodeDir: Plugin = async ({ client }) => {
   };
 };
 
-// V2 (promise variant): host adapts this with its own Effect runtime,
-// so no Effect import is used here — avoids cross-copy context crash.
-// Commands are loaded lazily so a packaging slip can never again fail
-// the whole module at import time (issues #22/#23).
-type RuntimeCommandDraft = {
-  add: (name: string, info: { template: string; description: string }) => void;
-};
-const V2Setup: PromisePlugin["setup"] = async (ctx) => {
-  const { commands } = await import("./lib.protocol.js");
-  await ctx.command.transform((draft) => {
-    const runtime = draft as unknown as RuntimeCommandDraft;
-    for (const [name, info] of Object.entries(commands)) {
-      runtime.add(name, { template: info.template, description: info.description });
-    }
+const v2Overrides = new Map<string, string>();
+for (const [sessionID, override] of dirOverrides) v2Overrides.set(sessionID, override.newDir);
+
+const V2Setup = async (ctx: unknown) => {
+  const { setupV2 } = await import("./lib.v2.js");
+  const instance = await setupV2(ctx as Parameters<typeof setupV2>[0], {
+    resolveDir: (raw: string) => ({ dir: resolveTarget(raw).dir }),
+    overrides: v2Overrides,
+    persistOverrides: () => {
+      for (const [sessionID, dir] of v2Overrides) dirOverrides.set(sessionID, { oldDir: dir, newDir: dir });
+      persistOverrides(OVERRIDES_FILE, dirOverrides);
+    },
   });
+  return () => instance.dispose();
 };
 export default {
   id: "opencode-dir",
