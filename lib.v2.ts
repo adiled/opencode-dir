@@ -90,15 +90,10 @@ export function serializeV2Log(fields: Record<string, unknown>): string {
 }
 
 export function v2Log(fields: Record<string, unknown>): void {
-  const line = serializeV2Log(fields)
   const path = ensureLogDir()
-  if (path) {
-    try {
-      appendFileSync(path, line + "\n")
-    } catch {}
-  }
+  if (!path) return
   try {
-    console.log(`[${SERVICE}] ${line}`)
+    appendFileSync(path, serializeV2Log(fields) + "\n")
   } catch {}
 }
 
