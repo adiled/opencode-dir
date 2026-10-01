@@ -254,12 +254,143 @@ export const tui: TuiPlugin = async (api) => {
   });
 };
 
-const V2TuiEffect = (_ctx: any) => Effect.void
-const plugin: TuiPluginModule & { id: string } & { effect?: any; setup?: any } = {
+export function DirectoryView(props: { context: Record<string, never>; sessionID: string }) {
+  const context = props.context;
+  const home = (process.env.HOME || "") as string;
+  const session = createMemo(() => context.data.session.get(props.sessionID));
+  const locationDefault = () => context.data.location.default();
+  const pathInfo = createMemo(() => {
+    const info = session();
+    const dir =
+      (info?.location?.directory as string) ||
+      (locationDefault()?.directory as string) ||
+      "?";
+    const branch =
+      dir === locationDefault()?.directory
+        ? context.data.location.vcs.info()?.branch?.current
+        : undefined;
+    const text = abbreviateHome(dir, home) + (branch ? ":" + branch : "");
+    const parts = text.split("/");
+    return { parent: parts.slice(0, -1).join("/"), name: parts.at(-1) ?? "" };
+  });
+  const grants = createMemo(() => {
+    const info = session();
+    const perms = ((info?.permissions ?? info?.permission ?? []) as Array<
+      Record<string, string>
+    >);
+    const primary =
+      (info?.location?.directory as string) || (locationDefault()?.directory as string);
+    const registry = (() => {
+      try {
+        const base =
+          process.env.XDG_DATA_HOME ||
+          (process.env.HOME || "") + "/.local/share";
+        const raw = fs.readFileSync(
+          base + "/opencode/opencode-dir/vaults.json",
+          "utf-8",
+        ) as string;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        return {};
+      }
+    })();
+    return perms
+      .filter(
+        (p) => (p.permission ?? p.action) === "external_directory",
+      )
+      .map((p) => (p.pattern ?? p.resource ?? "").replace(/\/\*$/, ""))
+      .filter((d) => d && d !== primary)
+      .map((d) =>
+        abbreviateHome(registry[d] ? String(registry[d]) : d, home),
+      );
+  });
+  const vaults = createMemo(() => grants().filter((d) => d.includes("vault-")));
+  const extras = createMemo(() => grants().filter((d) => !d.includes("vault-")));
+  const muted = () => context.theme.text.muted;
+  const base = () => context.theme.text.base;
+  return (
+    <box gap={1}>
+      <Show when={vaults().length > 0}>
+        <text fg={muted()}>🔓 {vaults().join(", ")}</text>
+      </Show>
+      <Show when={extras().length > 0}>
+        <text fg={muted()}>
+          +{String(extras().length)} add-dir: {extras().join(", ")}
+        </text>
+      </Show>
+      <text>
+        <span style={{ fg: muted() }}>{pathInfo().parent}/</span>
+        <span style={{ fg: base() }}>{pathInfo().name}</span>
+      </text>
+    </box>
+  );
+}
+
+const V2TuiEffect = (_ctx: unknown) => Effect.void
+
+const V2Setup = async (context: Record<string, never>) => {
+  const disposers: Array<() => void> = [];
+  try {
+    disposers.push(
+      (
+        context as unknown as {
+          ui: { slot: (claim: Record<string, unknown>) => () => void }
+        }
+      ).ui.slot({
+        append: "sidebar.footer",
+        render: (props: Record<string, never>) => (
+          <DirectoryView context={context} sessionID={props.sessionID} />
+        ),
+      }),
+    );
+  } catch (e) {
+    void e;
+  }
+  const data = (context as unknown as { data?: { listen?: (handler: (event: unknown) => void) => () => void } }).data;
+  if (typeof data?.listen === "function") {
+    try {
+      disposers.push(
+        data.listen((event: unknown) => {
+          const details = (event as { details?: { type?: string; data?: unknown } } | undefined)?.details;
+          if (!details || details.type !== "rpc.opencode-dir.toast") return;
+          const payload = (details.data ?? {}) as {
+            title?: string;
+            message?: string;
+            variant?: string;
+            duration?: number;
+          };
+          if (!payload.message) return;
+          (
+            context as unknown as {
+              ui: { toast: { show: (input: Record<string, unknown>) => void } }
+            }
+          ).ui.toast.show({
+            title: payload.title,
+            message: payload.message,
+            variant: payload.variant,
+            duration: payload.duration,
+          });
+        }),
+      );
+    } catch (e) {
+      void e;
+    }
+  }
+  return () => {
+    for (const dispose of disposers) {
+      try {
+        dispose();
+      } catch {}
+    }
+  };
+};
+
+const plugin: TuiPluginModule & { id: string } & { effect?: unknown; setup?: unknown } = {
   id: "opencode-dir",
   tui,
   effect: V2TuiEffect,
-  setup: V2TuiEffect,
-} as any
+  setup: V2Setup,
+} as unknown as TuiPluginModule
 
 export default plugin
