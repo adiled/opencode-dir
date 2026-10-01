@@ -132,11 +132,31 @@ export function extractTargetArgument(promptText: string): string {
 
 export type V2Outcome = { status: "ok"; result: string } | { status: "info"; result: string } | { status: "error"; result: string }
 
+export type V2Toast = { title?: string; message: string; variant?: "info" | "success" | "warning" | "error"; duration?: number }
+
+const ToastPayload = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    message: { type: "string" },
+    variant: { type: "string", enum: ["info", "success", "warning", "error"] },
+    duration: { type: "number" },
+  },
+  required: ["message"],
+} as const
+
+export const TOAST_RPC = {
+  id: "opencode-dir",
+  methods: {},
+  events: { toast: { schema: ToastPayload } },
+} as const
+
 export interface V2Deps {
   resolveDir: (raw: string) => { dir: string }
   overrides: Map<string, string>
   persistOverrides: (map: Map<string, string>) => void
   openDb?: () => unknown
+  toast?: (input: V2Toast) => void
 }
 
 export function getV2DbPath(): string {
@@ -471,9 +491,20 @@ export function buildV2Commands(deps: V2Deps, ctx: V2Context): V2CommandDefiniti
     description: DESCRIPTIONS[name],
     execute: async (invocation: V2Invocation) => {
       const outcome = await runV2Command(deps, ctx, name, invocation)
-      const text =
-        outcome.status === "error" ? `opencode-dir: ${outcome.result}` : `opencode-dir: ${outcome.result}`
+      const text = `opencode-dir: ${outcome.result}`
       v2Log({ event: "command.surface", command: name, sessionID: invocation.sessionID, outcome })
+      if (deps.toast) {
+        try {
+          deps.toast({
+            title: outcome.status === "error" ? "opencode-dir" : "opencode-dir",
+            message: outcome.result,
+            variant: outcome.status === "error" ? "error" : outcome.status === "info" ? "info" : "success",
+            duration: outcome.status === "error" ? 8000 : 5000,
+          })
+        } catch (e) {
+          v2Log({ event: "toast.failed", command: name, result: String(e) })
+        }
+      }
       await ctx.session
         .synthetic({
           sessionID: invocation.sessionID,

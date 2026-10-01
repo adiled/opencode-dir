@@ -584,27 +584,54 @@ const v2Overrides = new Map<string, string>();
 for (const [sessionID, override] of dirOverrides) v2Overrides.set(sessionID, override.newDir);
 
 const V2Setup = async (ctx: unknown) => {
-  const host = ctx as { app?: { version?: string } };
+  const app = (ctx as { app?: { version?: string } }).app;
   const { v2Log: v2log } = await import("./lib.v2.js");
   const hasV2Surface =
     typeof (ctx as { command?: { transform?: unknown } })?.command?.transform === "function" &&
     typeof (ctx as { session?: { get?: unknown } })?.session?.get === "function" &&
     typeof (ctx as { shell?: { hook?: unknown } })?.shell?.hook === "function";
   if (!hasV2Surface) {
-    v2log({ event: "setup.skipped", reason: "host lacks the v2 session/shell surface", app: host?.app });
+    v2log({ event: "setup.skipped", reason: "host lacks the v2 session/shell surface", app });
     return () => {};
   }
-  const { setupV2, openV2Db } = await import("./lib.v2.js");
+  const { setupV2, openV2Db, TOAST_RPC } = await import("./lib.v2.js");
+  const host = ctx as {
+    rpc?: {
+      register: (
+        definition: unknown,
+        handlers: Record<string, (...args: never[]) => unknown>,
+      ) => Promise<{ dispose: () => Promise<void> | void; events: { emit: (...args: never[]) => unknown } }>;
+    };
+  };
+  let emitToast: ((input: { title?: string; message: string; variant?: string; duration?: number }) => void) | undefined;
+  let disposeRpc: (() => Promise<void> | void) | undefined;
+  if (typeof host.rpc?.register === "function") {
+    try {
+      const registration = await host.rpc.register(TOAST_RPC, {});
+      emitToast = (input) => {
+        void Promise.resolve(registration.events.emit("toast" as never, input as never)).catch((e) => {
+          v2log({ event: "toast.emit.failed", result: String(e) });
+        });
+      };
+      disposeRpc = registration.dispose;
+    } catch (e) {
+      v2log({ event: "toast.rpc.failed", result: String(e) });
+    }
+  }
   const instance = await setupV2(ctx as Parameters<typeof setupV2>[0], {
     resolveDir: (raw: string) => ({ dir: resolveTarget(raw).dir }),
     overrides: v2Overrides,
     openDb: openV2Db,
+    toast: emitToast,
     persistOverrides: () => {
       for (const [sessionID, dir] of v2Overrides) dirOverrides.set(sessionID, { oldDir: dir, newDir: dir });
       persistOverrides(OVERRIDES_FILE, dirOverrides);
     },
   });
-  return () => instance.dispose();
+  return async () => {
+    await instance.dispose();
+    if (disposeRpc) await disposeRpc();
+  };
 };
 export default {
   id: "opencode-dir",

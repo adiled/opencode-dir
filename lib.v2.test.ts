@@ -8,8 +8,10 @@ import {
   buildV2Commands,
   runV2Command,
   setupV2,
+  TOAST_RPC,
   type V2Context,
   type V2Rule,
+  type V2Deps,
 } from "./lib.v2"
 
 function mockCtx(overrides: Partial<Record<string, unknown>> = {}) {
@@ -125,7 +127,11 @@ function fakeDb(rows: Record<string, any> = {}) {
   return db
 }
 
-function deps(overrides: Record<string, any> = {}, dbRows: Record<string, any> = {}) {
+function deps(overrides: Record<string, any> = {}, dbRows: Record<string, any> = {}): V2Deps & {
+  persisted: () => number
+  db: ReturnType<typeof fakeDb>
+  sessions: Map<string, unknown>
+} {
   const store = new Map<string, string>()
   let persisted = 0
   const db = fakeDb(dbRows)
@@ -434,5 +440,52 @@ describe("v2 setup", () => {
     await commands[0]!.execute({ sessionID: "ses_1", prompt: { text: "" }, delivery: "steer" })
     const msg = ctx.calls.synthetic[0] as { description: string }
     expect(msg.description).toBe("error")
+  })
+
+  it("emits a toast event for a successful command", async () => {
+    const ctx = mockCtx()
+    const toasts: Array<Record<string, unknown>> = []
+    const d = deps({}, { ses_1: { id: "ses_1", directory: "/from", project_id: "prj_a", path: null, permission: null } })
+    d.toast = (input) => toasts.push(input as Record<string, unknown>)
+    const commands = buildV2Commands(d, ctx)
+    await commands[0]!.execute({ sessionID: "ses_1", prompt: { text: "/target" }, delivery: "steer" })
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]!.variant).toBe("success")
+    expect(String(toasts[0]!.message)).toContain("/target")
+  })
+
+  it("emits an error toast for a usage failure", async () => {
+    const ctx = mockCtx()
+    const toasts: Array<Record<string, unknown>> = []
+    const d = deps()
+    d.toast = (input) => toasts.push(input as Record<string, unknown>)
+    const commands = buildV2Commands(d, ctx)
+    await commands[0]!.execute({ sessionID: "ses_1", prompt: { text: "" }, delivery: "steer" })
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]!.variant).toBe("error")
+  })
+
+  it("keeps running when the toast emitter throws", async () => {
+    const ctx = mockCtx()
+    const d = deps({}, { ses_1: { id: "ses_1", directory: "/from", project_id: "prj_a", path: null, permission: null } })
+    d.toast = () => {
+      throw new Error("bus gone")
+    }
+    const commands = buildV2Commands(d, ctx)
+    await expect(
+      commands[0]!.execute({ sessionID: "ses_1", prompt: { text: "/target" }, delivery: "steer" }),
+    ).resolves.toBeUndefined()
+    expect(ctx.calls.synthetic).toHaveLength(1)
+  })
+
+  it("omits the toast key when no emitter is wired", () => {
+    expect("toast" in deps()).toBe(false)
+  })
+
+  it("declares the toast RPC event under the opencode-dir id", () => {
+    expect(TOAST_RPC.id).toBe("opencode-dir")
+    expect(Object.keys(TOAST_RPC.events)).toEqual(["toast"])
+    const schema = (TOAST_RPC.events as { toast: { schema: { required: string[] } } }).toast.schema
+    expect(schema.required).toEqual(["message"])
   })
 })

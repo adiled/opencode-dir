@@ -311,7 +311,6 @@ function v1Runtime(binary: string): Runtime {
       const port = 31000 + Math.floor(Math.random() * 20000)
       await assertPortFree(port)
       const url = `http://127.0.0.1:${port}`
-      const auth: Record<string, string> = {}
       log(`v1 starting: ${binary} on port ${port} in ${box.project}`)
       const { proc, output } = spawnServer(
         binary,
