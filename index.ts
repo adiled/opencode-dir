@@ -46,6 +46,7 @@ const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE);
 export const OpencodeDir: Plugin = async ({ client }) => {
   initPluginGuard();
   mkdirSync(STATE_DIR, { recursive: true });
+  installV2LogSink(client);
 
   const log = async (message: string, extra?: Record<string, unknown>) => {
     try {
@@ -581,18 +582,34 @@ export const OpencodeDir: Plugin = async ({ client }) => {
   };
 };
 
+let v2LogSinkInstalled = false;
+
+const installV2LogSink = (client: { app: { log: (input: unknown) => Promise<unknown> } }) => {
+  if (v2LogSinkInstalled) return;
+  v2LogSinkInstalled = true;
+  void import("./lib.v2.js").then(({ setV2LogSink }) => {
+    setV2LogSink((message, extra) => {
+      void client.app
+        .log({ body: { service: "opencode-dir", level: "info", message, extra } })
+        .catch(() => {});
+    });
+  });
+};
+
 const v2Overrides = new Map<string, string>();
 for (const [sessionID, override] of dirOverrides) v2Overrides.set(sessionID, override.newDir);
 
 const V2Setup = async (ctx: unknown) => {
-  const app = (ctx as { app?: { version?: string } }).app;
-  const { v2Log: v2log } = await import("./lib.v2.js");
-  const hasV2Surface =
-    typeof (ctx as { command?: { transform?: unknown } })?.command?.transform === "function" &&
-    typeof (ctx as { session?: { get?: unknown } })?.session?.get === "function" &&
-    typeof (ctx as { shell?: { hook?: unknown } })?.shell?.hook === "function";
-  if (!hasV2Surface) {
-    v2log({ event: "setup.skipped", reason: "host lacks the v2 session/shell surface", app });
+  const { v2Log, v2Report, reportV2Skip } = await import("./lib.v2.js");
+  const domains = ctx as Record<string, Record<string, unknown> | undefined>;
+  const required = ["command.transform", "session.get", "session.update", "shell.hook", "tool.hook", "rpc.register"] as const;
+  const missing = required.filter((path) => {
+    const [domain, method] = path.split(".") as [string, string];
+    return typeof domains[domain]?.[method] !== "function";
+  });
+  if (missing.length > 0) {
+    v2Log({ event: "setup.skipped", missing, app: (ctx as { app?: unknown }).app });
+    reportV2Skip(missing);
     return () => {};
   }
   const { setupV2, openV2Db, TOAST_RPC } = await import("./lib.v2.js");
@@ -611,12 +628,12 @@ const V2Setup = async (ctx: unknown) => {
       const registration = await host.rpc.register(TOAST_RPC, {});
       emitToast = (input) => {
         void Promise.resolve(registration.events.emit("toast" as never, input as never)).catch((e) => {
-          v2log({ event: "toast.emit.failed", result: toError(e).message });
+          v2Report("toast.emit.failed", e);
         });
       };
       disposeRpc = registration.dispose;
     } catch (e) {
-      v2log({ event: "toast.rpc.failed", result: toError(e).message });
+      v2Report("toast.rpc.failed", e);
     }
   }
   const instance = await setupV2(ctx as Parameters<typeof setupV2>[0], {
