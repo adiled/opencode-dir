@@ -55,6 +55,11 @@ export const OpencodeDir: Plugin = async ({ client }) => {
     } catch {}
   };
 
+  const { setV2LogSink: setSink } = await import("./lib.v2.js");
+  setSink((message, extra) => {
+    void log(message, extra);
+  });
+
   await log("opencode-dir plugin loaded", {
     overridesRecovered: dirOverrides.size,
   });
@@ -587,12 +592,19 @@ for (const [sessionID, override] of dirOverrides) v2Overrides.set(sessionID, ove
 const V2Setup = async (ctx: unknown) => {
   const app = (ctx as { app?: { version?: string } }).app;
   const { v2Log: v2log } = await import("./lib.v2.js");
-  const hasV2Surface =
-    typeof (ctx as { command?: { transform?: unknown } })?.command?.transform === "function" &&
-    typeof (ctx as { session?: { get?: unknown } })?.session?.get === "function" &&
-    typeof (ctx as { shell?: { hook?: unknown } })?.shell?.hook === "function";
-  if (!hasV2Surface) {
-    v2log({ event: "setup.skipped", reason: "host lacks the v2 session/shell surface", app });
+  const domains = ctx as Record<string, Record<string, unknown> | undefined>;
+  const required = ["command.transform", "session.get", "session.update", "shell.hook"] as const;
+  const missing = required.filter((path) => {
+    const [domain, method] = path.split(".") as [string, string];
+    return typeof domains[domain]?.[method] !== "function";
+  });
+  if (missing.length > 0) {
+    v2log({
+      event: "setup.skipped",
+      reason: `host is missing required v2 surface(s): ${missing.join(", ")}`,
+      missing,
+      app,
+    });
     return () => {};
   }
   const { setupV2, openV2Db, TOAST_RPC } = await import("./lib.v2.js");

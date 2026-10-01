@@ -8,6 +8,8 @@ import {
   buildV2Commands,
   runV2Command,
   setupV2,
+  setV2LogSink,
+  v2Log,
   TOAST_RPC,
   type V2Context,
   type V2Rule,
@@ -496,5 +498,47 @@ describe("v2 setup", () => {
     expect(Object.keys(TOAST_RPC.events)).toEqual(["toast"])
     const schema = (TOAST_RPC.events as { toast: { schema: { required: string[] } } }).toast.schema
     expect(schema.required).toEqual(["message"])
+  })
+})
+
+describe("v2 logging", () => {
+  it("routes through the installed sink and writes nothing to disk", () => {
+    const seen: { message: string; extra: Record<string, unknown> }[] = []
+    setV2LogSink((message, extra) => {
+      seen.push({ message, extra })
+    })
+    try {
+      v2Log({ event: "command.invoke", command: "cd", sessionID: "ses_1" })
+    } finally {
+      setV2LogSink(null)
+    }
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.message).toBe("command.invoke")
+    expect(seen[0]!.extra).toEqual({ surface: "v2", command: "cd", sessionID: "ses_1" })
+  })
+
+  it("survives a sink that throws", () => {
+    setV2LogSink(() => {
+      throw new Error("sink down")
+    })
+    try {
+      expect(() => v2Log({ event: "command.invoke" })).not.toThrow()
+    } finally {
+      setV2LogSink(null)
+    }
+  })
+
+  it("keeps stdout clean", () => {
+    const log = console.log
+    const calls: unknown[][] = []
+    console.log = (...args: unknown[]) => {
+      calls.push(args)
+    }
+    try {
+      v2Log({ event: "command.invoke", command: "cd" })
+    } finally {
+      console.log = log
+    }
+    expect(calls).toEqual([])
   })
 })
