@@ -32,10 +32,11 @@ export function View(props: { api: TuiPluginApi; sessionID: string }) {
     const s = props.api.state.session.get(props.sessionID) as unknown as Record<string, unknown>;
     const dir = (s?.directory as string) || props.api.state.path.directory || "?";
     const out = abbreviateHome(dir, home);
-    const branch =
+    const rawBranch =
       s?.directory === props.api.state.path.directory
         ? (props.api.state.vcs as unknown as Record<string, unknown>)?.branch
         : undefined;
+    const branch = typeof rawBranch === "string" && rawBranch.length > 0 ? rawBranch : undefined;
     const text = branch ? out + ":" + branch : out;
     const parts = text.split("/");
     return {

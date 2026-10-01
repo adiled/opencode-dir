@@ -7,6 +7,31 @@ import { homedir } from "os"
 
 export class UserError extends Error {}
 
+/** Normalizes a caught value into an Error without losing detail to "[object Object]". */
+export function toError(value: unknown): Error {
+  if (value instanceof Error) return value
+  if (typeof value === "string") return new Error(value)
+  if (typeof value !== "object" || value === null) {
+    switch (typeof value) {
+      case "number":
+      case "boolean":
+      case "bigint":
+      case "symbol":
+      case "undefined":
+        return new Error(String(value))
+      case "string":
+        return new Error(value)
+      default:
+        return new Error("null")
+    }
+  }
+  try {
+    return new Error(JSON.stringify(value) ?? "non-serializable object")
+  } catch {
+    return new Error("non-serializable object")
+  }
+}
+
 // Guard: only allow execMove / execAddDir when called from within opencode's plugin system.
 let _pluginInitialized = false
 /** Marks this module as being used by opencode's plugin loader. */
@@ -312,7 +337,7 @@ export async function checkForUpdate(): Promise<UpdateResult> {
     const msg = e instanceof Error ? e.message : String(e)
     // Don't report aborts or network errors - expected in offline environments
     if (!msg.includes("abort")) {
-      reportError(new Error(`Update check failed: ${msg}`))
+      void reportError(new Error(`Update check failed: ${msg}`))
     }
     return { updated: false, error: msg }
   }
@@ -893,14 +918,14 @@ export function execMove(
         "opencode database does not contain expected tables. " +
         "The plugin may be opening a stale or wrong database file " +
         `(${getDbPath()}). Ensure opencode has been started at least once.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
       const msg = `session ${sessionId} not found in database.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
@@ -920,7 +945,7 @@ export function execMove(
     const changes = updateSession(db, sessionId, dir, projectId)
     if (changes === 0) {
       const msg = `session ${sessionId} not found after update.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
@@ -946,8 +971,8 @@ export function execMove(
 
     return { oldDir: currentDir, newDir: dir, result: lines.join("\n") }
   } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    if (!(err instanceof UserError)) reportError(err)
+    const err = toError(e)
+    if (!(err instanceof UserError)) void reportError(err)
     return {
       result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
       status: "error",
@@ -978,8 +1003,8 @@ export function execRemoveDir(
   try {
     dir = resolveTarget(targetPath).dir
   } catch (e: unknown) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    if (!(err instanceof UserError)) reportError(err)
+    const err = toError(e)
+    if (!(err instanceof UserError)) void reportError(err)
     return { result: err.message, status: "error" }
   }
 
@@ -994,14 +1019,14 @@ export function execRemoveDir(
         "opencode database does not contain expected tables. " +
         "The plugin may be opening a stale or wrong database file " +
         `(${getDbPath()}). Ensure opencode has been started at least once.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
       const msg = `session ${sessionId} not found in database.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
@@ -1017,8 +1042,8 @@ export function execRemoveDir(
       ].join("\n"),
     }
   } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    if (!(err instanceof UserError)) reportError(err)
+    const err = toError(e)
+    if (!(err instanceof UserError)) void reportError(err)
     return {
       result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
       status: "error",
@@ -1047,8 +1072,8 @@ export function execAddDir(
   try {
     dir = resolveTarget(targetPath).dir
   } catch (e: unknown) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    if (!(err instanceof UserError)) reportError(err)
+    const err = toError(e)
+    if (!(err instanceof UserError)) void reportError(err)
     return { result: err.message, status: "error" }
   }
 
@@ -1063,14 +1088,14 @@ export function execAddDir(
         "opencode database does not contain expected tables. " +
         "The plugin may be opening a stale or wrong database file " +
         `(${getDbPath()}). Ensure opencode has been started at least once.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
     const session = getSessionInfo(db, sessionId)
     if (!session) {
       const msg = `session ${sessionId} not found in database.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
@@ -1080,7 +1105,7 @@ export function execAddDir(
     }
     if (status === 0) {
       const msg = `session ${sessionId} not found in database.`
-      reportError(new Error(msg))
+      void reportError(new Error(msg))
       return { result: msg, status: "error" }
     }
 
@@ -1091,8 +1116,8 @@ export function execAddDir(
       ].join("\n"),
     }
   } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e))
-    if (!(err instanceof UserError)) reportError(err)
+    const err = toError(e)
+    if (!(err instanceof UserError)) void reportError(err)
     return {
       result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
       status: "error",

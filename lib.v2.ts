@@ -285,9 +285,14 @@ export function v2RewriteMessages(
   let skipped = 0
   const tx = db.transaction(() => {
     for (const msg of messages) {
-      let data: Record<string, any>
+      type StoredMessage = {
+        role?: unknown
+        time?: { created?: unknown; completed?: unknown }
+        path?: { cwd?: unknown; root?: unknown }
+      }
+      let data: StoredMessage
       try {
-        data = JSON.parse(msg.data)
+        data = JSON.parse(msg.data) as StoredMessage
       } catch {
         continue
       }

@@ -50,7 +50,7 @@ function mockCtx(overrides: Partial<Record<string, unknown>> = {}) {
     setInfo: (n: typeof info) => void
     registered: unknown[]
   }
-  const originalTransform = ctx.command.transform
+  const originalTransform = ctx.command.transform.bind(ctx.command)
   ctx.command.transform = (async (cb: (e: { add: (d: unknown) => void }) => void) => {
     ctx.registered.push(
       ...(() => {
@@ -64,12 +64,21 @@ function mockCtx(overrides: Partial<Record<string, unknown>> = {}) {
   return Object.assign(ctx, overrides)
 }
 
-function fakeDb(rows: Record<string, any> = {}) {
-  const sessions = new Map<string, any>(Object.entries(rows))
+type FakeRow = {
+  id: string
+  directory: string
+  project_id?: string
+  path?: string | null
+  permission?: string | null
+  [key: string]: unknown
+}
+
+function fakeDb(rows: Record<string, FakeRow> = {}) {
+  const sessions = new Map<string, FakeRow>(Object.entries(rows))
   const messages: { id: string; session_id: string; data: string }[] = []
-  const projects = new Map<string, any>()
-  const permissions: any[] = []
-  const db: any = {
+  const projects = new Map<string, { id: string; worktree: string }>()
+  const permissions: string[] = []
+  const db = {
     sessions,
     messages,
     projects,
@@ -127,10 +136,10 @@ function fakeDb(rows: Record<string, any> = {}) {
   return db
 }
 
-function deps(overrides: Record<string, any> = {}, dbRows: Record<string, any> = {}): V2Deps & {
+function deps(overrides: Record<string, unknown> = {}, dbRows: Record<string, FakeRow> = {}): V2Deps & {
   persisted: () => number
   db: ReturnType<typeof fakeDb>
-  sessions: Map<string, unknown>
+  sessions: Map<string, FakeRow>
 } {
   const store = new Map<string, string>()
   let persisted = 0
@@ -419,7 +428,7 @@ describe("v2 setup", () => {
     const handle = await setupV2(ctx, d)
     expect(ctx.registered).toHaveLength(4)
     await handle.dispose()
-    expect(ctx.calls.dispose.sort()).toEqual(["command", "shell", "tool"])
+    expect([...ctx.calls.dispose].sort((a, b) => a.localeCompare(b))).toEqual(["command", "shell", "tool"])
   })
 
   it("surfaces the outcome to the user as a synthetic message", async () => {
