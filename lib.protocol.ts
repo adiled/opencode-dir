@@ -44,7 +44,7 @@ export const CdProtocol: CommandProtocol = {
   driftCheck(db) {
     return check(db, this.required);
   },
-  execute(db, args) {
+  execute() {
     return null;
   },
 };
@@ -61,7 +61,7 @@ export const AddDirProtocol: CommandProtocol = {
   driftCheck(db) {
     return check(db, this.required);
   },
-  execute(db, args) {
+  execute() {
     return null;
   },
 };

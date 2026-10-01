@@ -125,7 +125,12 @@ async function waitUntil(desc: string, fn: () => boolean | Promise<boolean>, tim
   }
 }
 
-function kill(proc: ChildProcess | null): Promise<void> {
+type KillableProcess = {
+  on(event: string, listener: (...args: never[]) => void): KillableProcess
+  kill(signal?: string): boolean
+}
+
+function kill(proc: KillableProcess | null): Promise<void> {
   return new Promise((resolve) => {
     if (!proc) return resolve()
     let settled = false
@@ -648,7 +653,7 @@ function runContract(rt: Runtime): void {
       const id = await s.create()
       await s.run(id, "add-dir", box.extra)
       await waitUntil("grant visible", async () => covers(await s.apiPermissions(id), box.extra))
-      expect(covers(await s.dbPermissions(id), box.extra)).toBe(true)
+      expect(covers(s.dbPermissions(id), box.extra)).toBe(true)
     })
 
     it("/add-dir twice keeps a single rule", async () => {
@@ -679,7 +684,7 @@ function runContract(rt: Runtime): void {
         await waitUntil("grant visible", async () => covers(await s.apiPermissions(id), box.extra))
         await s.run(id, "remove-dir", box.extra)
         await waitUntil("grant gone", async () => !covers(await s.apiPermissions(id), box.extra))
-        expect(covers(await s.dbPermissions(id), box.extra)).toBe(false)
+        expect(covers(s.dbPermissions(id), box.extra)).toBe(false)
       },
       60000,
     )
@@ -707,7 +712,7 @@ function runContract(rt: Runtime): void {
       expect(await s.apiDirectory(id)).toBe(resolvePath(box.repoB))
       expect(covers(await s.apiPermissions(id), box.extra)).toBe(true)
       expect(await s.dbDirectory(id)).toBe(resolvePath(box.repoB))
-      expect(covers(await s.dbPermissions(id), box.extra)).toBe(true)
+      expect(covers(s.dbPermissions(id), box.extra)).toBe(true)
     })
 
     it("keeps the session readable after mutations", async () => {

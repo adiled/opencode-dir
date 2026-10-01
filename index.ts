@@ -26,6 +26,7 @@ import {
   getDbPath,
   waitForSettled,
   resolveTarget,
+  toError,
 } from "./lib.js";
 import { vaultInit, vaultOpen, vaultClose } from "./lib.vault.js";
 import { Database } from "./db.js";
@@ -92,7 +93,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       .catch(() => {});
   } else if (updateResult.error) {
     // Report detailed error to Sentry for debugging
-    reportUpdateError({
+    void reportUpdateError({
       message: `Update check failed`,
       error: new Error(updateResult.error),
       currentVersion: getVersion() ?? "unknown",
@@ -171,9 +172,9 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         if (sub === "init" && !target) {
           try {
             const { writeFileSync, mkdirSync } = await import("fs");
-            const { dirname } = await import("path");
+            const path = await import("path");
             const f = needVaultPassFile(input.sessionID);
-            mkdirSync(dirname(f), { recursive: true });
+            mkdirSync(path.dirname(f), { recursive: true });
             writeFileSync(f, "init");
           } catch {}
           setParts("Vault init — enter passphrase in dialog.");
@@ -333,8 +334,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         try {
           exec = execAddDir(input.sessionID, targetPath);
         } catch (e: unknown) {
-          const err = e instanceof Error ? e : new Error(String(e));
-          if (!(err instanceof UserError)) reportError(err);
+          const err = toError(e);
+          if (!(err instanceof UserError)) void reportError(err);
           exec = { result: err.message, status: "error" };
         }
 
@@ -383,8 +384,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         try {
           ex = execRemoveDir(input.sessionID, targetPath);
         } catch (e: unknown) {
-          const err = e instanceof Error ? e : new Error(String(e));
-          if (!(err instanceof UserError)) reportError(err);
+          const err = toError(e);
+          if (!(err instanceof UserError)) void reportError(err);
           ex = { result: err.message, status: "error" };
         }
 
@@ -435,8 +436,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       try {
         exec = execMove(input.sessionID, targetPath, input.command === "mv");
       } catch (e: unknown) {
-        const err = e instanceof Error ? e : new Error(String(e));
-        if (!(err instanceof UserError)) reportError(err);
+        const err = toError(e);
+        if (!(err instanceof UserError)) void reportError(err);
         exec = { result: err.message, status: "error" };
       }
 
@@ -511,7 +512,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           if (!output.args.path) output.args.path = newDir;
         }
       } catch (e) {
-        if (e instanceof Error) reportError(e);
+        if (e instanceof Error) void reportError(e);
       }
     },
 
@@ -522,7 +523,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
         output.env.PWD = override.newDir;
       } catch (e) {
-        if (e instanceof Error) reportError(e);
+        if (e instanceof Error) void reportError(e);
       }
     },
 
@@ -574,7 +575,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           } catch {}
         }
       } catch (e) {
-        if (e instanceof Error) reportError(e);
+        if (e instanceof Error) void reportError(e);
       }
     },
   };
@@ -610,12 +611,12 @@ const V2Setup = async (ctx: unknown) => {
       const registration = await host.rpc.register(TOAST_RPC, {});
       emitToast = (input) => {
         void Promise.resolve(registration.events.emit("toast" as never, input as never)).catch((e) => {
-          v2log({ event: "toast.emit.failed", result: String(e) });
+          v2log({ event: "toast.emit.failed", result: toError(e).message });
         });
       };
       disposeRpc = registration.dispose;
     } catch (e) {
-      v2log({ event: "toast.rpc.failed", result: String(e) });
+      v2log({ event: "toast.rpc.failed", result: toError(e).message });
     }
   }
   const instance = await setupV2(ctx as Parameters<typeof setupV2>[0], {

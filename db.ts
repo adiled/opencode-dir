@@ -14,19 +14,16 @@ export interface SQLiteDatabase {
 
 const require = createRequire(import.meta.url)
 let DatabaseImpl: { new (path: string): SQLiteDatabase } | null = null
-let isNodeSqlite = false
 try {
   const mod = require("node:sqlite")
   if (mod.DatabaseSync) {
     DatabaseImpl = mod.DatabaseSync as { new (path: string): SQLiteDatabase }
-    isNodeSqlite = true
   } else throw new Error("no DatabaseSync")
 } catch {
   try {
     const mod = require("bun:sqlite")
     DatabaseImpl = mod.Database as { new (path: string): SQLiteDatabase }
-    isNodeSqlite = false
-  } catch (e) {
+  } catch {
     throw new Error("No sqlite implementation found (node:sqlite or bun:sqlite)")
   }
 }

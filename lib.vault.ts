@@ -1,6 +1,5 @@
 import { existsSync, statSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from "fs"
-import { join, resolve, dirname } from "path"
-import { tmpdir } from "os"
+import { join, resolve } from "path"
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto"
 import { Database } from "./db.js"
 import { appendDirPermission, removeDirPermission } from "./lib.js"

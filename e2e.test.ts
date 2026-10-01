@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { Database } from "./db"
-import { spawn, execSync, type ChildProcess } from "child_process"
+import { spawn, execSync } from "child_process"
 import { mkdtempSync, mkdirSync, existsSync, rmSync, writeFileSync, realpathSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
@@ -49,7 +49,15 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: "e2e@test",
 }
 
-let serverProc: ChildProcess | null = null
+type ServerStream = { on(event: string, listener: (chunk: Buffer) => void): unknown }
+type ServerProcess = {
+  stdout: ServerStream | null
+  stderr: ServerStream | null
+  on(event: string, listener: (...args: never[]) => void): ServerProcess
+  kill(signal?: string): boolean
+}
+
+let serverProc: ServerProcess | null = null
 let fakeProvider: FakeProvider | null = null
 let dbPath: string
 

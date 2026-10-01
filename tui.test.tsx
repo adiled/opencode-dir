@@ -2,7 +2,7 @@
 
 /** @jsxImportSource @opentui/solid */
 
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect } from "vitest"
 import { tui } from "./tui"
 // Use opencode's own TUI mock as source of truth (copied from packages/tui/test/fixture/tui-plugin.ts)
 import { RGBA } from "@opentui/core"
