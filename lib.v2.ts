@@ -3,7 +3,7 @@ import { homedir } from "os"
 import { dirname, isAbsolute, join, relative, resolve } from "path"
 import { randomUUID } from "crypto"
 import { createRequire } from "module"
-import { UserError, reportError, toError } from "./lib.js"
+import { toError, reportUnexpected, variantFor, durationFor } from "./lib.common.js"
 
 export type V2Effect = "allow" | "deny" | "ask"
 export type V2Rule = { action: string; resource: string; effect: V2Effect }
@@ -114,14 +114,12 @@ export function v2Log(fields: Record<string, unknown>): void {
 }
 
 export function v2Report(event: string, error: unknown, extra: Record<string, unknown> = {}): void {
-  const err = toError(error)
-  v2Log({ event, ...extra, result: err.message })
-  if (err instanceof UserError) return
-  void reportError(err)
+  v2Log({ event, ...extra, result: toError(error).message })
+  reportUnexpected(toError(error))
 }
 
 export function reportV2Skip(missing: readonly string[]): void {
-  void reportError(new Error(`v2 surface unavailable: ${missing.join(", ")}`))
+  reportUnexpected(new Error(`v2 surface unavailable: ${missing.join(", ")}`))
 }
 
 export function externalDirectoryResource(dir: string): string {
@@ -520,8 +518,8 @@ export function buildV2Commands(deps: V2Deps, ctx: V2Context): V2CommandDefiniti
           deps.toast({
             title: "opencode-dir",
             message: outcome.result,
-            variant: outcome.status === "error" ? "error" : outcome.status === "info" ? "info" : "success",
-            duration: outcome.status === "error" ? 8000 : 5000,
+            variant: variantFor(outcome.status),
+            duration: durationFor(outcome.status),
           })
         } catch (e) {
           v2Report("toast.failed", e, { command: name })

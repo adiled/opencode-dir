@@ -12,6 +12,7 @@
   "files": [
     "index.ts",
     "lib.ts",
+    "lib.common.ts",
     "lib.protocol.ts",
     "lib.v2.ts",
     "lib.vault.ts",

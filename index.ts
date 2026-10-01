@@ -7,14 +7,11 @@ import { homedir } from "os";
 import {
   type Override,
   type ExecResult,
-  UserError,
   loadOverrides,
   persistOverrides,
   execMove,
   execAddDir,
   execRemoveDir,
-  reportError,
-  reportUpdateError,
   getVersion,
   refreshOpencodeVersion,
   meetsMinVersion,
@@ -28,6 +25,12 @@ import {
   resolveTarget,
   toError,
 } from "./lib.js";
+import {
+  report,
+  reportUnexpected,
+  logBody,
+  type Logger,
+} from "./lib.common.js";
 import { vaultInit, vaultOpen, vaultClose } from "./lib.vault.js";
 import { Database } from "./db.js";
 
@@ -46,15 +49,14 @@ const dirOverrides: Map<string, Override> = loadOverrides(OVERRIDES_FILE);
 export const OpencodeDir: Plugin = async ({ client }) => {
   initPluginGuard();
   mkdirSync(STATE_DIR, { recursive: true });
-  installV2LogSink(client);
 
-  const log = async (message: string, extra?: Record<string, unknown>) => {
+  const log: Logger = async (message, extra) => {
     try {
-      await client.app.log({
-        body: { service: "opencode-dir", level: "info", message, extra },
-      });
+      await client.app.log(logBody(message, extra));
     } catch {}
   };
+
+  installV2LogSink(log);
 
   await log("opencode-dir plugin loaded", {
     overridesRecovered: dirOverrides.size,
@@ -94,8 +96,8 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       .catch(() => {});
   } else if (updateResult.error) {
     // Report detailed error to Sentry for debugging
-    void reportUpdateError({
-      message: `Update check failed`,
+    void report({
+      kind: "update",
       error: new Error(updateResult.error),
       currentVersion: getVersion() ?? "unknown",
       url: "https://registry.npmjs.org/opencode-dir/latest",
@@ -336,7 +338,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           exec = execAddDir(input.sessionID, targetPath);
         } catch (e: unknown) {
           const err = toError(e);
-          if (!(err instanceof UserError)) void reportError(err);
+          reportUnexpected(toError(err));
           exec = { result: err.message, status: "error" };
         }
 
@@ -386,7 +388,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           ex = execRemoveDir(input.sessionID, targetPath);
         } catch (e: unknown) {
           const err = toError(e);
-          if (!(err instanceof UserError)) void reportError(err);
+          reportUnexpected(toError(err));
           ex = { result: err.message, status: "error" };
         }
 
@@ -438,7 +440,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         exec = execMove(input.sessionID, targetPath, input.command === "mv");
       } catch (e: unknown) {
         const err = toError(e);
-        if (!(err instanceof UserError)) void reportError(err);
+        reportUnexpected(toError(err));
         exec = { result: err.message, status: "error" };
       }
 
@@ -513,7 +515,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           if (!output.args.path) output.args.path = newDir;
         }
       } catch (e) {
-        if (e instanceof Error) void reportError(e);
+        reportUnexpected(toError(e));
       }
     },
 
@@ -524,7 +526,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
         output.env.PWD = override.newDir;
       } catch (e) {
-        if (e instanceof Error) void reportError(e);
+        reportUnexpected(toError(e));
       }
     },
 
@@ -576,7 +578,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           } catch {}
         }
       } catch (e) {
-        if (e instanceof Error) void reportError(e);
+        reportUnexpected(toError(e));
       }
     },
   };
@@ -584,16 +586,10 @@ export const OpencodeDir: Plugin = async ({ client }) => {
 
 let v2LogSinkInstalled = false;
 
-const installV2LogSink = (client: { app: { log: (input: unknown) => Promise<unknown> } }) => {
+const installV2LogSink = (log: Logger) => {
   if (v2LogSinkInstalled) return;
   v2LogSinkInstalled = true;
-  void import("./lib.v2.js").then(({ setV2LogSink }) => {
-    setV2LogSink((message, extra) => {
-      void client.app
-        .log({ body: { service: "opencode-dir", level: "info", message, extra } })
-        .catch(() => {});
-    });
-  });
+  void import("./lib.v2.js").then(({ setV2LogSink }) => setV2LogSink(log));
 };
 
 const v2Overrides = new Map<string, string>();

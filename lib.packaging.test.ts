@@ -61,7 +61,7 @@ describe("packaging (issues #22/#23) — ships, installs and LOADS", () => {
   it("tarball actually contains every runtime source file", () => {
     const tarball = packTarball()
     const listing = execFileSync("tar", ["tzf", tarball], { encoding: "utf-8" })
-    for (const f of ["package/index.ts", "package/lib.ts", "package/lib.protocol.ts", "package/lib.vault.ts", "package/db.ts"]) {
+    for (const f of ["package/index.ts", "package/lib.ts", "package/lib.common.ts", "package/lib.protocol.ts", "package/lib.vault.ts", "package/db.ts"]) {
       expect(listing).toContain(f)
     }
     installTarball(tarball)
