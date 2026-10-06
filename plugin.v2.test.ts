@@ -9,13 +9,15 @@ describe("V1/V2 dual plugin shape", () => {
     expect(typeof def.setup).toBe("function")
   })
 
-  it("tui default has id + tui (V1) and effect/setup (V2)", async () => {
+  it("tui default has id + tui (V1) and setup (V2 promise, effect-free)", async () => {
     const mod = await import("./tui.tsx")
-    const def = mod.default as { id: string; tui: unknown; effect: unknown; setup: unknown }
+    const def = mod.default as { id: string; tui: unknown; effect?: unknown; setup: unknown }
     expect(def.id).toBe("opencode-dir")
     expect(typeof def.tui).toBe("function")
-    expect(typeof def.effect).toBe("function")
     expect(typeof def.setup).toBe("function")
+    // The `effect` hook would drag the 46 MB `effect` package into every
+    // consumer's install; the host falls back to `setup` when it is absent.
+    expect(def.effect).toBeUndefined()
   })
 
   it("tui View still renders", async () => {

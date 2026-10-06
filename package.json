@@ -50,10 +50,7 @@
     "opencode2": ">=2.0.20"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.4.3",
-    "@opentui/core": "^0.4.2",
     "@opentui/solid": "^0.4.2",
-    "effect": "^4.0.0-beta.83",
     "solid-js": "^1.9.12"
   },
   "devDependencies": {
