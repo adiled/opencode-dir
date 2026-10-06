@@ -22,6 +22,48 @@ describe("V1/V2 dual plugin shape", () => {
     const { View } = await import("./tui.tsx")
     expect(typeof View).toBe("function")
   })
+
+  it("reports exactly the surfaces setupV2 is gated on", async () => {
+    const { setV2LogSink } = await import("./lib.v2.js")
+    const events: Record<string, unknown>[] = []
+    setV2LogSink((message, extra) => {
+      if (message === "setup.skipped") events.push(extra)
+    })
+    const { default: mod } = await import("./index.ts")
+    await (mod.setup as (ctx: unknown) => Promise<unknown>)({})
+    setV2LogSink(null)
+
+    expect(events).toHaveLength(1)
+    expect(events[0]!.missing).toEqual([
+      "command.transform",
+      "session.get",
+      "session.update",
+      "shell.hook",
+      "tool.hook",
+    ])
+  })
+
+  it("does not skip setup when only the optional toast rpc is absent", async () => {
+    const { setV2LogSink } = await import("./lib.v2.js")
+    const events: Record<string, unknown>[] = []
+    setV2LogSink((message, extra) => {
+      if (message === "setup.skipped") events.push(extra)
+    })
+    const ctx = {
+      app: { name: "opencode", version: "2.0.20", channel: "stable" },
+      options: {},
+      command: { transform: async () => ({ dispose: async () => {} }) },
+      session: { get: async () => ({ permissions: [], location: { directory: "/tmp" } }), update: async () => {} },
+      shell: { hook: async () => ({ dispose: async () => {} }) },
+      tool: { hook: async () => ({ dispose: async () => {} }) },
+      rpc: undefined,
+    }
+    const { default: mod } = await import("./index.ts")
+    await (mod.setup as (c: unknown) => Promise<unknown>)(ctx)
+    setV2LogSink(null)
+
+    expect(events).toEqual([])
+  })
 })
 
 describe("v2 tui setup", () => {

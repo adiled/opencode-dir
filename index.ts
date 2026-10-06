@@ -598,7 +598,7 @@ for (const [sessionID, override] of dirOverrides) v2Overrides.set(sessionID, ove
 const V2Setup = async (ctx: unknown) => {
   const { v2Log, v2Report, reportV2Skip } = await import("./lib.v2.js");
   const domains = ctx as Record<string, Record<string, unknown> | undefined>;
-  const required = ["command.transform", "session.get", "session.update", "shell.hook", "tool.hook", "rpc.register"] as const;
+  const required = ["command.transform", "session.get", "session.update", "shell.hook", "tool.hook"] as const;
   const missing = required.filter((path) => {
     const [domain, method] = path.split(".") as [string, string];
     return typeof domains[domain]?.[method] !== "function";
