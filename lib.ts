@@ -1,36 +1,22 @@
 import { Database } from "./db.js"
 import { resolve, join, isAbsolute, relative } from "path"
 import { existsSync, realpathSync, readFileSync, writeFileSync, statSync, type Stats } from "fs"
-import { execSync, execFile } from "child_process"
-import { promisify } from "util"
+import { execSync } from "child_process"
 import { homedir } from "os"
+import {
+  UserError,
+  toError,
+  reportError,
+  reportUnexpected,
+  getVersion,
+  getOpencodeVersion,
+  refreshOpencodeVersion,
+  resetOpencodeVersionCache,
+  meetsMinVersion,
+  MIN_OPENCODE_VERSION,
+} from "./lib.common.js"
 
-export class UserError extends Error {}
-
-/** Normalizes a caught value into an Error without losing detail to "[object Object]". */
-export function toError(value: unknown): Error {
-  if (value instanceof Error) return value
-  if (typeof value === "string") return new Error(value)
-  if (typeof value !== "object" || value === null) {
-    switch (typeof value) {
-      case "number":
-      case "boolean":
-      case "bigint":
-      case "symbol":
-      case "undefined":
-        return new Error(String(value))
-      case "string":
-        return new Error(value)
-      default:
-        return new Error("null")
-    }
-  }
-  try {
-    return new Error(JSON.stringify(value) ?? "non-serializable object")
-  } catch {
-    return new Error("non-serializable object")
-  }
-}
+export { UserError, toError, getVersion, getOpencodeVersion, refreshOpencodeVersion, resetOpencodeVersionCache, MIN_OPENCODE_VERSION, meetsMinVersion, reportError }
 
 // Guard: only allow execMove / execAddDir when called from within opencode's plugin system.
 let _pluginInitialized = false
@@ -46,162 +32,6 @@ function checkGuard() {
 }
 
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Error telemetry (zero-dep Sentry envelope API)
-// ---------------------------------------------------------------------------
-
-const SENTRY_DSN = "https://3dc34b92b6635091e8f0feba7bf6f9c5@o4510982366625792.ingest.us.sentry.io/4510982373769216"
-
-let _version: string | undefined
-
-export function getVersion(): string {
-  if (!_version) {
-    try {
-      const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8"))
-      _version = pkg.version
-    } catch {
-      _version = "unknown"
-    }
-  }
-  return _version!
-}
-
-/** Reports an error to Sentry. Silent on failure - must never break the plugin. */
-// Context-rich error report for update checks
-export async function reportUpdateError(context: { message: string; error: Error; currentVersion: string; url: string }) {
-  if (process.env.OPENCODE_DIR_TEST || process.env.VITEST) return
-  try {
-    const { platform, arch, release } = await import("os")
-    const url = new URL(SENTRY_DSN)
-    const projectId = url.pathname.slice(1)
-    const publicKey = url.username
-    const endpoint = `https://${url.host}/api/${projectId}/envelope/`
-
-    const header = JSON.stringify({
-      event_id: crypto.randomUUID().replace(/-/g, ""),
-      dsn: SENTRY_DSN,
-      sent_at: new Date().toISOString(),
-    })
-    const item = JSON.stringify({ type: "event" })
-    const payload = JSON.stringify({
-      exception: {
-        values: [{
-          type: context.error.name,
-          value: context.error.message,
-          stacktrace: {
-            frames: (context.error.stack ?? "").split("\n").slice(1).map((line) => ({
-              filename: line.trim(),
-            })),
-          },
-        }],
-      },
-      release: `opencode-dir@${context.currentVersion}`,
-      platform: "node",
-      environment: "production",
-      contexts: {
-        os: { name: platform(), version: release() },
-        device: { arch: arch() },
-        runtime: { name: "node", version: process.version },
-        app: { app_version: context.currentVersion, opencode_version: getOpencodeVersion() ?? "unknown" },
-        client: { client: process.env.OPENCODE_CLIENT ?? "cli", caller: process.env.OPENCODE_CALLER ?? "unknown" },
-      },
-      tags: {
-        check_type: "update",
-        url: context.url,
-        os: platform(),
-        arch: arch(),
-        node: process.version,
-        client: process.env.OPENCODE_CLIENT ?? "cli",
-        caller: process.env.OPENCODE_CALLER ?? "unknown",
-      },
-      extra: {
-        cwd: process.cwd(),
-        channel: process.env.OPENCODE_CHANNEL ?? "latest",
-        open_client: process.env.OPENCODE_CLIENT ?? "cli",
-        open_caller: process.env.OPENCODE_CALLER ?? "unknown",
-      },
-    })
-
-    await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-sentry-envelope",
-        "X-Sentry-Auth": `Sentry sentry_key=${publicKey}, sentry_version=7`,
-      },
-      body: `${header}\n${item}\n${payload}`,
-    })
-  } catch {
-    // Silent - telemetry must never break the plugin
-  }
-}
-
-export async function reportError(err: Error) {
-  if (process.env.OPENCODE_DIR_TEST || process.env.VITEST) return
-  try {
-    const os = await import("os")
-    const url = new URL(SENTRY_DSN)
-    const projectId = url.pathname.slice(1)
-    const publicKey = url.username
-    const endpoint = `https://${url.host}/api/${projectId}/envelope/`
-
-    const header = JSON.stringify({
-      event_id: crypto.randomUUID().replace(/-/g, ""),
-      dsn: SENTRY_DSN,
-      sent_at: new Date().toISOString(),
-    })
-    const item = JSON.stringify({ type: "event" })
-    const payload = JSON.stringify({
-      exception: {
-        values: [{
-          type: err.name,
-          value: err.message,
-          stacktrace: {
-            frames: (err.stack ?? "").split("\n").slice(1).map((line) => ({
-              filename: line.trim(),
-            })),
-          },
-        }],
-      },
-      release: `opencode-dir@${getVersion()}`,
-      platform: "node",
-      environment: "production",
-      contexts: {
-        os: { name: os.platform(), version: os.release() },
-        device: { arch: os.arch() },
-        runtime: { name: "node", version: process.version },
-        app: { app_version: getVersion(), opencode_version: getOpencodeVersion() ?? "unknown" },
-        client: { client: process.env.OPENCODE_CLIENT ?? "cli", caller: process.env.OPENCODE_CALLER ?? "unknown" },
-      },
-      tags: {
-        os: os.platform(),
-        arch: os.arch(),
-        node: process.version,
-        opencode: getOpencodeVersion() ?? "unknown",
-        client: process.env.OPENCODE_CLIENT ?? "cli",
-        caller: process.env.OPENCODE_CALLER ?? "unknown",
-      },
-      extra: {
-        cwd: process.cwd(),
-        argv: process.argv.slice(0, 5).join(" "),
-        channel: process.env.OPENCODE_CHANNEL ?? "latest",
-        open_client: process.env.OPENCODE_CLIENT ?? "cli",
-        open_caller: process.env.OPENCODE_CALLER ?? "unknown",
-      },
-    })
-
-    await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-sentry-envelope",
-        "X-Sentry-Auth": `Sentry sentry_key=${publicKey}, sentry_version=7`,
-      },
-      body: `${header}\n${item}\n${payload}`,
-    })
-  } catch {
-    // Silent - telemetry must never break the plugin
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Overrides
@@ -231,59 +61,6 @@ export function persistOverrides(path: string, map: Map<string, Override>) {
 // ---------------------------------------------------------------------------
 // Version check
 // ---------------------------------------------------------------------------
-
-export const MIN_OPENCODE_VERSION = "1.18.0"
-
-function normalizeVersion(version: string): string | null {
-  return version === "0.0.0" || version.startsWith("0.0.0-") ? null : version
-}
-
-let serverVersion: string | null = null
-
-const execFileAsync = promisify(execFile)
-
-export function resetOpencodeVersionCache(): void {
-  serverVersion = null
-}
-
-export function getOpencodeVersion(): string | null {
-  return serverVersion
-}
-
-export async function refreshOpencodeVersion(): Promise<string | null> {
-  if (!process.env.OPENCODE_DIR_TEST) {
-    try {
-      const { stdout } = await execFileAsync("opencode", ["--version"], {
-        timeout: 3000,
-      })
-      const version = stdout.trim()
-      if (version) serverVersion = normalizeVersion(version)
-    } catch {}
-  }
-  return getOpencodeVersion()
-}
-
-/**
- * Compares two semver strings (major.minor.patch only).
- * Returns true if `version` >= `minimum`.
- * Returns true for non-semver values (e.g. "local") to avoid
- * false positives on dev builds.
- */
-export function meetsMinVersion(version: string, minimum: string): boolean {
-  const parse = (v: string) => {
-    const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v)
-    return m ? [+m[1], +m[2], +m[3]] : null
-  }
-  const v = parse(version)
-  const min = parse(minimum)
-  if (!v || !min) return true // non-semver → don't block
-  for (let i = 0; i < 3; i++) {
-    if (v[i] > min[i]) return true
-    if (v[i] < min[i]) return false
-  }
-  return true // equal
-}
-
 
 export interface UpdateResult {
   updated: boolean
@@ -972,7 +749,7 @@ export function execMove(
     return { oldDir: currentDir, newDir: dir, result: lines.join("\n") }
   } catch (e) {
     const err = toError(e)
-    if (!(err instanceof UserError)) void reportError(err)
+    reportUnexpected(toError(err))
     return {
       result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
       status: "error",
@@ -1004,7 +781,7 @@ export function execRemoveDir(
     dir = resolveTarget(targetPath).dir
   } catch (e: unknown) {
     const err = toError(e)
-    if (!(err instanceof UserError)) void reportError(err)
+    reportUnexpected(toError(err))
     return { result: err.message, status: "error" }
   }
 
@@ -1043,7 +820,7 @@ export function execRemoveDir(
     }
   } catch (e) {
     const err = toError(e)
-    if (!(err instanceof UserError)) void reportError(err)
+    reportUnexpected(toError(err))
     return {
       result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
       status: "error",
@@ -1073,7 +850,7 @@ export function execAddDir(
     dir = resolveTarget(targetPath).dir
   } catch (e: unknown) {
     const err = toError(e)
-    if (!(err instanceof UserError)) void reportError(err)
+    reportUnexpected(toError(err))
     return { result: err.message, status: "error" }
   }
 
@@ -1117,7 +894,7 @@ export function execAddDir(
     }
   } catch (e) {
     const err = toError(e)
-    if (!(err instanceof UserError)) void reportError(err)
+    reportUnexpected(toError(err))
     return {
       result: err instanceof UserError ? err.message : "opencode-dir database operation failed - the plugin may need updating.",
       status: "error",

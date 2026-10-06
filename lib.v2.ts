@@ -3,6 +3,7 @@ import { homedir } from "os"
 import { dirname, isAbsolute, join, relative, resolve } from "path"
 import { randomUUID } from "crypto"
 import { createRequire } from "module"
+import { toError, reportUnexpected, variantFor, durationFor } from "./lib.common.js"
 
 export type V2Effect = "allow" | "deny" | "ask"
 export type V2Rule = { action: string; resource: string; effect: V2Effect }
@@ -89,12 +90,36 @@ export function serializeV2Log(fields: Record<string, unknown>): string {
   })
 }
 
+export type V2LogSink = (message: string, extra: Record<string, unknown>) => void
+
+let sink: V2LogSink | null = null
+
+export function setV2LogSink(next: V2LogSink | null): void {
+  sink = next
+}
+
 export function v2Log(fields: Record<string, unknown>): void {
+  if (sink) {
+    const { event, ts: _ts, service: _service, surface: _surface, ...rest } = fields
+    try {
+      sink(typeof event === "string" ? event : "opencode-dir", { surface: "v2", ...rest })
+    } catch {}
+    return
+  }
   const path = ensureLogDir()
   if (!path) return
   try {
     appendFileSync(path, serializeV2Log(fields) + "\n")
   } catch {}
+}
+
+export function v2Report(event: string, error: unknown, extra: Record<string, unknown> = {}): void {
+  v2Log({ event, ...extra, result: toError(error).message })
+  reportUnexpected(toError(error))
+}
+
+export function reportV2Skip(missing: readonly string[]): void {
+  reportUnexpected(new Error(`v2 surface unavailable: ${missing.join(", ")}`))
 }
 
 export function externalDirectoryResource(dir: string): string {
@@ -340,9 +365,8 @@ export async function runV2Command(
   try {
     dir = deps.resolveDir(target).dir
   } catch (e) {
-    const result = e instanceof Error ? e.message : String(e)
-    v2Log({ event: "command.resolve.failed", command, sessionID, target, result })
-    return { status: "error", result }
+    v2Report("command.resolve.failed", e, { command, sessionID, target })
+    return { status: "error", result: toError(e).message }
   }
 
   v2Log({ event: "command.resolved", command, sessionID, target, dir })
@@ -352,7 +376,7 @@ export async function runV2Command(
     try {
       info = await ctx.session.get({ sessionID })
     } catch (e) {
-      v2Log({ event: "session.get.failed", command, sessionID, result: String(e) })
+      v2Report("session.get.failed", e, { command, sessionID })
     }
 
     const current = info?.location.directory ?? ""
@@ -390,8 +414,7 @@ export async function runV2Command(
         db.close()
       }
     } catch (e) {
-      const result = e instanceof Error ? e.message : String(e)
-      v2Log({ event: "session.move.failed", command, sessionID, from: current, to: dir, result })
+      v2Report("session.move.failed", e, { command, sessionID, from: current, to: dir })
       return {
         status: "error",
         result: "opencode-dir database operation failed - the plugin may need updating.",
@@ -423,9 +446,8 @@ export async function runV2Command(
   try {
     rules = (await ctx.session.get({ sessionID })).permissions ?? []
   } catch (e) {
-    const result = e instanceof Error ? e.message : String(e)
-    v2Log({ event: "session.get.failed", command, sessionID, result })
-    return { status: "error", result }
+    v2Report("session.get.failed", e, { command, sessionID, dir })
+    return { status: "error", result: toError(e).message }
   }
 
   v2Log({ event: "permissions.read", command, sessionID, dir, count: rules.length, rules })
@@ -457,9 +479,8 @@ export async function runV2Command(
   try {
     await ctx.session.update({ sessionID, permissions: next })
   } catch (e) {
-    const result = e instanceof Error ? e.message : String(e)
-    v2Log({ event: "session.update.failed", command, sessionID, dir, result })
-    return { status: "error", result: `Could not update permissions: ${result}` }
+    v2Report("session.update.failed", e, { command, sessionID, dir })
+    return { status: "error", result: `Could not update permissions: ${toError(e).message}` }
   }
 
   v2Log({
@@ -491,28 +512,27 @@ export function buildV2Commands(deps: V2Deps, ctx: V2Context): V2CommandDefiniti
     description: DESCRIPTIONS[name],
     execute: async (invocation: V2Invocation) => {
       const outcome = await runV2Command(deps, ctx, name, invocation)
-      const text = `opencode-dir: ${outcome.result}`
       v2Log({ event: "command.surface", command: name, sessionID: invocation.sessionID, outcome })
       if (deps.toast) {
         try {
           deps.toast({
-            title: outcome.status === "error" ? "opencode-dir" : "opencode-dir",
+            title: "opencode-dir",
             message: outcome.result,
-            variant: outcome.status === "error" ? "error" : outcome.status === "info" ? "info" : "success",
-            duration: outcome.status === "error" ? 8000 : 5000,
+            variant: variantFor(outcome.status),
+            duration: durationFor(outcome.status),
           })
         } catch (e) {
-          v2Log({ event: "toast.failed", command: name, result: String(e) })
+          v2Report("toast.failed", e, { command: name })
         }
       }
       await ctx.session
         .synthetic({
           sessionID: invocation.sessionID,
-          text,
+          text: `opencode-dir: ${outcome.result}`,
           description: outcome.status,
         })
         .catch((e) => {
-          v2Log({ event: "synthetic.failed", command: name, sessionID: invocation.sessionID, result: String(e) })
+          v2Report("synthetic.failed", e, { command: name, sessionID: invocation.sessionID })
         })
     },
   }))
