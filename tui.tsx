@@ -9,7 +9,6 @@ import type {
 import { createMemo, Show } from "solid-js";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { Effect } from "effect";
 import { pickerView } from "./tui.picker.js";
 
 function abbreviateHome(input: string, home: string) {
@@ -328,8 +327,6 @@ export function DirectoryView(props: { context: Record<string, never>; sessionID
   );
 }
 
-const V2TuiEffect = (_ctx: unknown) => Effect.void
-
 const V2Setup = async (context: Record<string, never>) => {
   const disposers: Array<() => void> = [];
   try {
@@ -387,10 +384,9 @@ const V2Setup = async (context: Record<string, never>) => {
   };
 };
 
-const plugin: TuiPluginModule & { id: string } & { effect?: unknown; setup?: unknown } = {
+const plugin: TuiPluginModule & { id: string } & { setup?: unknown } = {
   id: "opencode-dir",
   tui,
-  effect: V2TuiEffect,
   setup: V2Setup,
 } as unknown as TuiPluginModule
 

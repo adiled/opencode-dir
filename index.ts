@@ -1,4 +1,4 @@
-import { type Plugin } from "@opencode-ai/plugin";
+import type { Plugin } from "@opencode-ai/plugin";
 // NOTE: lib.protocol is imported lazily (see config hook and V2Setup below)
 // so a packaging slip can never again kill the whole plugin at load time
 // (issues #22/#23: v1.2.4 omitted lib.protocol.ts from npm `files`).
@@ -31,8 +31,8 @@ import {
   logBody,
   type Logger,
 } from "./lib.common.js";
-import { vaultInit, vaultOpen, vaultClose } from "./lib.vault.js";
-import { Database } from "./db.js";
+// NOTE: lib.vault + db are imported lazily too (see the /vault and system
+// transform hooks below) so the plugin's cold-load graph stays small.
 
 const home = process.env.HOME || process.env.USERPROFILE || homedir();
 const STATE_DIR = `${process.env.XDG_DATA_HOME || home + "/.local/share"}/opencode`;
@@ -169,7 +169,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         const raw = input.arguments.trim();
         const [sub, ...rest] = raw.split(/\s+/);
         const target = rest.join(" ").trim();
-        const { getVaultPass, needVaultPassFile } =
+        const { getVaultPass, needVaultPassFile, vaultInit, vaultOpen, vaultClose } =
           await import("./lib.vault.js");
         // /vault init with no dir = set/change passphrase (even if env set)
         if (sub === "init" && !target) {
@@ -240,7 +240,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           return;
         }
         if (sub === "open") {
-          const db = new Database(getDbPath());
+          const db = new (await import("./db.js")).Database(getDbPath());
           try {
             const r = vaultOpen(db, input.sessionID, target, pass);
             if (!r.ok) setParts(null);
@@ -261,7 +261,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
           return;
         }
         if (sub === "close") {
-          const db = new Database(getDbPath());
+          const db = new (await import("./db.js")).Database(getDbPath());
           try {
             const r = vaultClose(db, input.sessionID, target, pass);
             if (!r.ok) setParts(null);
@@ -308,7 +308,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
       }
 
       if (input.command === "cd" || input.command === "mv" || input.command === "add-dir") {
-        const settleDb = new Database(getDbPath());
+        const settleDb = new (await import("./db.js")).Database(getDbPath());
         try {
           const settled = await waitForSettled(settleDb, input.sessionID, () =>
             client.session.abort({ path: { id: input.sessionID } }),
@@ -543,7 +543,7 @@ export const OpencodeDir: Plugin = async ({ client }) => {
         const sid = input.sessionID;
         if (sid) {
           try {
-            const db = new Database(getDbPath());
+            const db = new (await import("./db.js")).Database(getDbPath());
             try {
               const info = getSessionInfo(db, sid);
               const perms = getSessionPermissions(db, sid) as Array<{ permission: string; pattern: string }>;

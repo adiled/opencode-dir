@@ -95,6 +95,30 @@ describe("packaging (issues #22/#23) — ships, installs and LOADS", () => {
     expect(shape.setup).toBe("function")
   }, 60_000)
 
+  it("stays lean: heavy packages are dev-only, not shipped to consumers", () => {
+    // A fresh `npm install opencode-dir` used to pull ~189 MB. `effect` (46 MB)
+    // and `@opencode-ai/plugin` (47 MB: sdk, zod, ai-sdk) are type-only or
+    // host-provided — they must never creep back into `dependencies`.
+    const deps = Object.keys(pkg.dependencies ?? {})
+    expect(deps.sort()).toEqual(["@opentui/solid", "solid-js"])
+    // @opentui/core + solid-js's siblings arrive transitively via @opentui/solid
+    expect(pkg.dependencies?.effect).toBeUndefined()
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBeUndefined()
+  })
+
+  it("cold-load graph stays small (vault + db are dynamic imports)", () => {
+    // index.ts's top-level import graph is what opencode parses on every
+    // plugin load. lib.vault (crypto) and db must stay behind `await import`.
+    const src = readFileSync(join(scratch, "index.ts"), "utf-8")
+    const staticImports = [...src.matchAll(/^import[^\n]*from "(\.[^"]*)"/gm)].map((m) => m[1])
+    expect(staticImports).not.toContain("./lib.vault.js")
+    expect(staticImports).not.toContain("./db.js")
+    expect(staticImports).not.toContain("./lib.v2.js")
+    expect(staticImports).not.toContain("./lib.protocol.js")
+    // type-only: the emitted JS must not load @opencode-ai/plugin at runtime
+    expect(src).toMatch(/^import type \{ Plugin \} from "@opencode-ai\/plugin";$/m)
+  })
+
   it("all 5 slash commands register from the installed package", async () => {
     // The V1 config hook populates slash commands — the exact thing users lost.
     const mod = await import(join(scratch, "out", "index.js"))
